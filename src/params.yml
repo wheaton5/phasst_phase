@@ -11,22 +11,24 @@ args:
         help: output directory
     - het_kmers:
         long: het_kmers
-        short: h
+        short: k
         takes_value: true
         required: true
         help: het_kmers.tsv from het_snp_kmers output
     - linked_read_kmers:
         long: linked_read_kmers
+        short: l
         multiple: true
         takes_value: true
         required: false
         help: 10x genomics linked read molecule kmers from output of molecule_kmers
     - hic_kmers:
         long: hic_r1s
+        short: h
         multiple: true
         required: true
         takes_value: true
-        help: hic r1 files 
+        help: hic kmers as output from molecule_kmers 
     - threads:
         short: t
         long: threads

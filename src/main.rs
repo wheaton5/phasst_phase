@@ -5,7 +5,7 @@ extern crate rayon;
 extern crate phasst_lib;
 extern crate rand;
 
-use phasst_lib::{Kmers, load_molecule_kmers, load_assembly_kmers, Variants, Molecules, Assembly};
+use phasst_lib::{Kmers, load_molecule_kmers, load_assembly_kmers, Molecules, Assembly};
 use rayon::prelude::*;
 
 use rand::Rng;
@@ -20,22 +20,22 @@ fn main() {
     println!("Welcome to phasst phase!");
     let params = load_params();
     let kmers = Kmers::load_kmers(&params.het_kmers);
-    let (variants, molecules) = load_molecule_kmers(&params.txg_mols, &params.hic_mols, &params.longread_mols, &kmers);
+    let (_variants, molecules) = load_molecule_kmers(&params.txg_mols, &params.hic_mols, &params.longread_mols, &kmers);
     let assembly = load_assembly_kmers(&params.assembly_kmers, &kmers);
 
     
-    let variant_contig_order: Contig_Loci = good_assembly_loci(&assembly);
+    let variant_contig_order: ContigLoci = good_assembly_loci(&assembly);
     let hic_links: HashMap<i32, Vec<HIC>> = gather_hic_links(&molecules, &variant_contig_order);
     phasst_phase_main(&params, &hic_links, &variant_contig_order);
 }
 
-struct Contig_Loci {
+struct ContigLoci {
     kmers: HashMap<i32, (i32, usize)>, // map from kmer id to contig id and position
     loci: HashMap<i32, usize>, // map from contig id to number of loci
 }
 
 
-fn good_assembly_loci(assembly: &Assembly) ->  Contig_Loci { // returning a map from kmer id to contig id and position
+fn good_assembly_loci(assembly: &Assembly) ->  ContigLoci { // returning a map from kmer id to contig id and position
  
     let mut variant_contig_order: HashMap<i32, (i32, usize)> = HashMap::new();
 
@@ -64,7 +64,7 @@ fn good_assembly_loci(assembly: &Assembly) ->  Contig_Loci { // returning a map 
         loci.insert(*contig, positions.len());
     }
 
-    Contig_Loci{
+    ContigLoci{
         kmers: variant_contig_order,
         loci: loci,
     }
@@ -72,10 +72,10 @@ fn good_assembly_loci(assembly: &Assembly) ->  Contig_Loci { // returning a map 
 
 struct HIC {
     loci: Vec<usize>,
-    alleles: Vec<f32>,
+    alleles: Vec<bool>,
 }
 
-fn gather_hic_links(molecules: &Molecules, variant_contig_order: &Contig_Loci) -> HashMap<i32, Vec<HIC>> { // returns map from contig id to list of HIC data structures
+fn gather_hic_links(molecules: &Molecules, variant_contig_order: &ContigLoci) -> HashMap<i32, Vec<HIC>> { // returns map from contig id to list of HIC data structures
     let mut hic_mols: HashMap<i32, Vec<HIC>> = HashMap::new();
 
     let mut contig_mols: HashMap<i32, HashMap<i32, Vec<(i32, usize)>>> = HashMap::new();
@@ -90,16 +90,16 @@ fn gather_hic_links(molecules: &Molecules, variant_contig_order: &Contig_Loci) -
     }
     for (contig, mols) in contig_mols.iter() {
         let mut hic: Vec<HIC> = Vec::new();
-        for (mol, vars) in mols.iter() {
+        for (_mol, vars) in mols.iter() {
             if vars.len() > 1 {
                 let mut loci: Vec<usize> = Vec::new();
-                let mut alleles: Vec<f32> = Vec::new();
+                let mut alleles: Vec<bool> = Vec::new();
                 for (var, index) in vars {
                     loci.push(*index);
                     if var % 2 == 0 {
-                        alleles.push(0.0);
+                        alleles.push(false);
                     } else {
-                        alleles.push(1.0);
+                        alleles.push(true);
                     }
                 }
                 hic.push(HIC{alleles: alleles, loci: loci});
@@ -113,7 +113,7 @@ fn gather_hic_links(molecules: &Molecules, variant_contig_order: &Contig_Loci) -
 
 
 struct ThreadData {
-    best_total_log_probability: HashMap<u32, f32>, // best log prob for each contig
+    best_total_log_probability: HashMap<i32, f32>, // best log prob for each contig
     rng: StdRng,
     solves_per_thread: usize,
     thread_num: usize,
@@ -130,7 +130,7 @@ impl ThreadData {
     }
 }
 
-fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig_loci: &Contig_Loci) {
+fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig_loci: &ContigLoci) {
     let seed = [params.seed; 32];
     let mut rng: StdRng = SeedableRng::from_seed(seed);
     let mut threads: Vec<ThreadData> = Vec::new();
@@ -142,23 +142,133 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig
     threads.par_iter_mut().for_each(|thread_data| {
         for iteration in 0..thread_data.solves_per_thread {
             for (contig, loci) in contig_loci.loci.iter() {
-                let mut cluster_centers: Vec<Vec<f32>> = init_cluster_centers(*loci, params, &mut thread_data.rng);
-                let (log_loss, log_probabilities) = EM(cluster_centers, &hic_links, params, iteration, thread_data.thread_num);
+                let cluster_centers: Vec<Vec<f32>> = init_cluster_centers(*loci, params, &mut thread_data.rng);
+                let contig_hic_links = hic_links.get(contig).unwrap();
+                let log_loss = expectation_maximization(*loci, cluster_centers, &contig_hic_links, params, iteration, thread_data.thread_num);
+                let best_log_prob_so_far = thread_data.best_total_log_probability.entry(*contig).or_insert(f32::NEG_INFINITY);
+                if &log_loss > best_log_prob_so_far {
+                    thread_data.best_total_log_probability.insert(*contig, log_loss);
+                }
+                eprintln!("thread {} iteration {} done with {}, best so far {}", 
+                    thread_data.thread_num, iteration, log_loss, thread_data.best_total_log_probability.get(contig).unwrap());
             }
         }
     });
 }
 
-fn EM(mut cluster_centers: Vec<Vec<f32>>, hic_links: &HashMap<i32, Vec<HIC>>, params: &Params, epoch: usize, thread_num: usize) -> (HashMap<i32,f32>, HashMap<i32, Vec<Vec<f32>>>) {
+fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic_links: &Vec<HIC>, params: &Params, epoch: usize, thread_num: usize) -> f32 {
     let mut sums: Vec<Vec<f32>> = Vec::new();
     let mut denoms: Vec<Vec<f32>> = Vec::new();
-    let mut contig_log_probabilities: HashMap<i32, f32> = HashMap::new();
-    let mut contig_cluster_centers: HashMap<i32, Vec<Vec<f32>>> = HashMap::new();
+    
+    for cluster in 0..params.ploidy {
+        sums.push(Vec::new());
+        denoms.push(Vec::new());
+        for _index in 0..loci {
+            sums[cluster].push(0.5);
+            denoms[cluster].push(1.0); // psuedocounts
+        }
+    }
 
-    // now lets do some EM
+     // now lets do some EM
+    let log_prior: f32 = (1.0/(params.ploidy as f32)).ln();
+    let mut iterations = 0;
 
+    let mut total_log_loss = f32::NEG_INFINITY;
 
-    (contig_log_probabilities, contig_cluster_centers)
+    let mut final_log_probabilities: Vec<Vec<f32>> = Vec::new();
+    for _read in 0..hic_links.len() {
+        final_log_probabilities.push(Vec::new());
+    }
+
+    let log_loss_change_limit = 0.000001 * (hic_links.len() as f32); // TODO fiddle with this in testing
+    let mut last_log_loss = f32::NEG_INFINITY;
+    let mut log_loss_change = 10000.0;
+    while log_loss_change > log_loss_change_limit && iterations < 100 {
+        let mut log_bernoulli_loss = 0.0;
+        reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);
+        for (readdex, hic_read) in hic_links.iter().enumerate() { 
+            let log_bernoullis = bernoulli_loss(hic_read, &cluster_centers, log_prior);
+            log_bernoulli_loss += log_sum_exp(&log_bernoullis);
+            let probabilities = normalize_in_log(&log_bernoullis);
+            
+            
+            update_centers_average(&mut sums, &mut denoms, hic_read, &probabilities);
+            final_log_probabilities[readdex] = log_bernoullis;
+        }
+        total_log_loss = log_bernoulli_loss;
+        log_loss_change = log_bernoulli_loss - last_log_loss;//log_loss - last_log_loss;
+        last_log_loss = log_bernoulli_loss;//log_loss;
+
+        update_final(loci, &sums, &denoms, &mut cluster_centers);
+        iterations += 1;
+        eprintln!("bernoulli\t{}\t{}\t{}\t{}\t{}", thread_num, epoch, iterations,  log_bernoulli_loss, log_loss_change);
+    }
+    total_log_loss
+}
+
+fn update_final(loci: usize, sums: &Vec<Vec<f32>>, denoms: &Vec<Vec<f32>>, cluster_centers: &mut Vec<Vec<f32>>) {
+    for locus in 0..loci {
+        for cluster in 0..sums.len() {
+            let update = sums[cluster][locus]/denoms[cluster][locus];
+            cluster_centers[cluster][locus] = update.min(0.99).max(0.01);//max(0.0001, min(0.9999, update));
+        }
+    }
+}
+
+fn update_centers_average(sums: &mut Vec<Vec<f32>>, denoms: &mut Vec<Vec<f32>>, hic_read: &HIC, probabilities: &Vec<f32>) {
+    for locus in 0..hic_read.loci.len() {
+        for (cluster, probability) in probabilities.iter().enumerate() {
+            match hic_read.alleles[locus] {
+                false => sums[cluster][hic_read.loci[locus]] += 0.0,
+                true => sums[cluster][hic_read.loci[locus]] += probability,
+            }
+            denoms[cluster][hic_read.loci[locus]] += probabilities[cluster];
+        }
+    }
+}
+
+fn normalize_in_log(log_probs: &Vec<f32>) -> Vec<f32> { // takes in a log_probability vector and converts it to a normalized probability
+    let mut normalized_probabilities: Vec<f32> = Vec::new();
+    let sum = log_sum_exp(log_probs);
+    for i in 0..log_probs.len() {
+        normalized_probabilities.push((log_probs[i]-sum).exp());
+    }
+    normalized_probabilities
+}
+
+fn bernoulli_loss(hic_read: &HIC, cluster_centers: &Vec<Vec<f32>>, log_prior: f32) -> Vec<f32> {
+    let mut log_probabilities: Vec<f32> = Vec::new();
+    for (cluster, center) in cluster_centers.iter().enumerate() {
+        log_probabilities.push(log_prior);
+        for (locus_index, locus) in hic_read.loci.iter().enumerate() {
+            log_probabilities[cluster] += ln_bernoulli(hic_read.alleles[locus_index], center[*locus]);
+        }
+    }
+    
+    log_probabilities
+}
+
+fn ln_bernoulli(kmer: bool, p: f32) -> f32 {
+    match kmer {
+        false => (1.0 - p).ln(),
+        true => p.ln(),
+    }
+}
+
+fn log_sum_exp(p: &Vec<f32>) -> f32{
+    let max_p: f32 = p.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let sum_rst: f32 = p.iter().map(|x| (x - max_p).exp()).sum();
+    max_p + sum_rst.ln()
+}
+
+fn reset_sums_denoms(loci: usize, sums: &mut Vec<Vec<f32>>, 
+    denoms: &mut Vec<Vec<f32>>, num_clusters: usize) {
+    for cluster in 0..num_clusters {
+        for index in 0..loci {
+            sums[cluster][index] = 0.50;
+            denoms[cluster][index] = 1.0;
+        }
+    }
 }
 
 fn init_cluster_centers(loci: usize, params: &Params, rng: &mut StdRng) -> Vec<Vec<f32>> {

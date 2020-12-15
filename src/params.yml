@@ -64,3 +64,9 @@ args:
         required: true
         help: assembly kmers file from molecule_kmers
         takes_value: true
+    - ploidy:
+        short: p
+        long: ploidy
+        required: false
+        help: ploidy of organism, default 2
+        takes_value: true

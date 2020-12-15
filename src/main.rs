@@ -23,12 +23,19 @@ fn main() {
     let (variants, molecules) = load_molecule_kmers(&params.txg_mols, &params.hic_mols, &params.longread_mols, &kmers);
     let assembly = load_assembly_kmers(&params.assembly_kmers, &kmers);
 
-    phasst_phase_main(&params, &variants, &molecules);
-    let variant_contig_order: HashMap<i32, (i32, usize)> = good_assembly_loci(&assembly);
+    
+    let variant_contig_order: Contig_Loci = good_assembly_loci(&assembly);
     let hic_links: HashMap<i32, Vec<HIC>> = gather_hic_links(&molecules, &variant_contig_order);
+    phasst_phase_main(&params, &hic_links);
 }
 
-fn good_assembly_loci(assembly: &Assembly) ->  HashMap<i32, (i32, usize)> { // returning a map from kmer id to contig and position
+struct Contig_Loci {
+    kmers: HashMap<i32, (i32, usize)>, // map from kmer id to contig id and position
+    loci: HashMap<i32, usize>, // map from contig id to number of loci
+}
+
+
+fn good_assembly_loci(assembly: &Assembly) ->  Contig_Loci { // returning a map from kmer id to contig id and position
  
     let mut variant_contig_order: HashMap<i32, (i32, usize)> = HashMap::new();
 
@@ -40,10 +47,10 @@ fn good_assembly_loci(assembly: &Assembly) ->  HashMap<i32, (i32, usize)> { // r
         positions.push((*position, *kmer, *contig));
     }
 
-    for (_contig, positions) in contig_positions {
+    for (_contig, positions) in contig_positions.iter() {
         let mut poses: Vec<(usize, i32, i32)> = Vec::new();
         for (pos, kmer, contig) in positions {
-            poses.push((pos, kmer, contig));
+            poses.push((*pos, *kmer, *contig));
         }
         poses.sort();
         for (index, (_position, kmer, contig)) in poses.iter().enumerate() {
@@ -52,7 +59,15 @@ fn good_assembly_loci(assembly: &Assembly) ->  HashMap<i32, (i32, usize)> { // r
         }
     }
 
-    return variant_contig_order;
+    let mut loci: HashMap<i32, usize> = HashMap::new();
+    for (contig, positions) in contig_positions.iter() { 
+        loci.insert(*contig, positions.len());
+    }
+
+    Contig_Loci{
+        kmers: variant_contig_order,
+        loci: loci,
+    }
 }
 
 struct HIC {
@@ -60,13 +75,13 @@ struct HIC {
     alleles: Vec<f32>,
 }
 
-fn gather_hic_links(molecules: &Molecules, variant_contig_order: &HashMap<i32, (i32, usize)>) -> HashMap<i32, Vec<HIC>> {
+fn gather_hic_links(molecules: &Molecules, variant_contig_order: &Contig_Loci) -> HashMap<i32, Vec<HIC>> { // returns map from contig id to list of HIC data structures
     let mut hic_mols: HashMap<i32, Vec<HIC>> = HashMap::new();
 
     let mut contig_mols: HashMap<i32, HashMap<i32, Vec<(i32, usize)>>> = HashMap::new();
     for mol in molecules.get_hic_molecules() {
         for var in molecules.get_hic_variants(*mol) {
-            if let Some((contig, order)) = variant_contig_order.get(&var.abs()) {
+            if let Some((contig, order)) = variant_contig_order.kmers.get(&var.abs()) {
                 let mols = contig_mols.entry(*contig).or_insert(HashMap::new());
                 let vars = mols.entry(*mol).or_insert(Vec::new());
                 vars.push((var.abs(), *order));
@@ -115,7 +130,7 @@ impl ThreadData {
     }
 }
 
-fn phasst_phase_main(params: &Params, variants: &Variants, molecules: &Molecules) {
+fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>) {
     let seed = [params.seed; 32];
     let mut rng: StdRng = SeedableRng::from_seed(seed);
     let mut threads: Vec<ThreadData> = Vec::new();
@@ -124,8 +139,11 @@ fn phasst_phase_main(params: &Params, variants: &Variants, molecules: &Molecules
         threads.push(ThreadData::from_seed(new_seed(&mut rng), solves_per_thread, i));
     }
     threads.par_iter_mut().for_each(|thread_data| {
-
+        let cluster_centers: HashMap<i32, Vec<Vec<f32>>> = init_cluster_centers(loci_used, &cell_data, params, &mut thread_data.rng, &locus_to_index);
     });
+}
+
+fn init_cluster_centers(loci_used: usize, cell_data: &Vec<CellData>, params: &Params, rng: &mut StdRng, locus_to_index: &HashMap<usize, usize>) -> Vec<Vec<f32>> {
 
 }
 
@@ -149,12 +167,14 @@ struct Params {
     assembly_fasta: String,
     threads: usize,
     seed: u8,
+    ploidy: usize,
     restarts: u32,
 }
 
 fn load_params() -> Params {
     let yaml = load_yaml!("params.yml");
     let params = App::from_yaml(yaml).get_matches();
+    
     let het_kmers = params.value_of("het_kmers").unwrap();
     let output = params.value_of("output").unwrap();
     let txg_tmp: Option<Vec<&str>> = match params.values_of("linked_read_mols") {
@@ -196,7 +216,7 @@ fn load_params() -> Params {
     let threads = params.value_of("threads").unwrap_or("1");
     let threads = threads.to_string().parse::<usize>().unwrap();
 
-    let seed = params.value_of("seed").unwrap_or("4");
+    let seed = params.value_of("seed").unwrap_or("4"); // 4 is guarranteed random by dice roll https://xkcd.com/221/
     let seed = seed.to_string().parse::<u8>().unwrap();
 
     let restarts = params.value_of("restarts").unwrap_or("10");
@@ -204,6 +224,9 @@ fn load_params() -> Params {
     
     let assembly_kmers = params.value_of("assembly_kmers").unwrap();
     let assembly_fasta = params.value_of("assembly_fasta").unwrap();
+
+    let ploidy = params.value_of("ploidy").unwrap_or("2");
+    let ploidy = ploidy.to_string().parse::<usize>().unwrap();
     Params{
         het_kmers: het_kmers.to_string(),
         output: output.to_string(),
@@ -215,6 +238,7 @@ fn load_params() -> Params {
         threads: threads,
         seed: seed,
         restarts: restarts,
+        ploidy: ploidy,
     }
 }
 

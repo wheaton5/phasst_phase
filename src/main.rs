@@ -26,7 +26,7 @@ fn main() {
     
     let variant_contig_order: Contig_Loci = good_assembly_loci(&assembly);
     let hic_links: HashMap<i32, Vec<HIC>> = gather_hic_links(&molecules, &variant_contig_order);
-    phasst_phase_main(&params, &hic_links);
+    phasst_phase_main(&params, &hic_links, &variant_contig_order);
 }
 
 struct Contig_Loci {
@@ -130,21 +130,46 @@ impl ThreadData {
     }
 }
 
-fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>) {
+fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig_loci: &Contig_Loci) {
     let seed = [params.seed; 32];
     let mut rng: StdRng = SeedableRng::from_seed(seed);
     let mut threads: Vec<ThreadData> = Vec::new();
     let solves_per_thread = ((params.restarts as f32)/(params.threads as f32)).ceil() as usize;
     for i in 0..params.threads {
         threads.push(ThreadData::from_seed(new_seed(&mut rng), solves_per_thread, i));
+        
     }
     threads.par_iter_mut().for_each(|thread_data| {
-        let cluster_centers: HashMap<i32, Vec<Vec<f32>>> = init_cluster_centers(loci_used, &cell_data, params, &mut thread_data.rng, &locus_to_index);
+        for iteration in 0..thread_data.solves_per_thread {
+            for (contig, loci) in contig_loci.loci.iter() {
+                let mut cluster_centers: Vec<Vec<f32>> = init_cluster_centers(*loci, params, &mut thread_data.rng);
+                let (log_loss, log_probabilities) = EM(cluster_centers, &hic_links, params, iteration, thread_data.thread_num);
+            }
+        }
     });
 }
 
-fn init_cluster_centers(loci_used: usize, cell_data: &Vec<CellData>, params: &Params, rng: &mut StdRng, locus_to_index: &HashMap<usize, usize>) -> Vec<Vec<f32>> {
+fn EM(mut cluster_centers: Vec<Vec<f32>>, hic_links: &HashMap<i32, Vec<HIC>>, params: &Params, epoch: usize, thread_num: usize) -> (HashMap<i32,f32>, HashMap<i32, Vec<Vec<f32>>>) {
+    let mut sums: Vec<Vec<f32>> = Vec::new();
+    let mut denoms: Vec<Vec<f32>> = Vec::new();
+    let mut contig_log_probabilities: HashMap<i32, f32> = HashMap::new();
+    let mut contig_cluster_centers: HashMap<i32, Vec<Vec<f32>>> = HashMap::new();
 
+    // now lets do some EM
+
+
+    (contig_log_probabilities, contig_cluster_centers)
+}
+
+fn init_cluster_centers(loci: usize, params: &Params, rng: &mut StdRng) -> Vec<Vec<f32>> {
+    let mut centers: Vec<Vec<f32>> = Vec::new();
+    for cluster in 0..params.ploidy {
+        centers.push(Vec::new());
+        for _ in 0..loci {
+            centers[cluster].push(rng.gen::<f32>().min(0.99).max(0.01));
+        }
+    }
+    centers
 }
 
 fn new_seed(rng: &mut StdRng) -> [u8; 32] {

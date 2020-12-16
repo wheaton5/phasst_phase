@@ -230,8 +230,8 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
             eprintln!("hic read {} with probabilities {:?}", readdex, probabilities);
             for cluster in 0..2 {
                 for i in 0..hic_read.loci.len() {
-                    eprintln!("\tcluster {} locus {} cluster center {} allele {}, kmer_id {}", 
-                        cluster, hic_read.loci[i], cluster_centers[cluster][hic_read.loci[i]], hic_read.alleles[i], hic_read.kmers[i]);
+                    eprintln!("\tcluster {} locus {} cluster center {} allele {}", 
+                        cluster, hic_read.loci[i], cluster_centers[cluster][hic_read.loci[i]], hic_read.alleles[i]);
                 }
             }
             

@@ -222,6 +222,13 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
             let log_bernoullis = bernoulli_loss(hic_read, &cluster_centers, log_prior);
             log_bernoulli_loss += log_sum_exp(&log_bernoullis);
             let probabilities = normalize_in_log(&log_bernoullis);
+
+            eprintln!("hic read {} with probabilities {:?}", readdex, probabilities);
+            for cluster in 0..2 {
+                for i in 0..hic_read.loci.len() {
+                    eprintln!("\tcluster {} locus {} cluster center {} allele {}", cluster, hic_read.loci[i], cluster_centers[cluster][hic_read.loci[i]], hic_read.alleles[i]);
+                }
+            }
             
             update_centers_average(&mut sums, &mut denoms, hic_read, &probabilities);
             final_log_probabilities[readdex] = log_bernoullis;

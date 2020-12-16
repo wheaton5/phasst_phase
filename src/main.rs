@@ -19,6 +19,7 @@ use clap::{App};
 fn main() {
     println!("Welcome to phasst phase!");
     let params = load_params();
+    eprintln!("loading kmers");
     let kmers = Kmers::load_kmers(&params.het_kmers);
     //let (_variants, molecules) = load_molecule_kmers(&params.txg_mols, &params.hic_mols, &params.longread_mols, &kmers);
     eprintln!("loading hic kmers");

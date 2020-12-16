@@ -79,6 +79,7 @@ fn good_assembly_loci(assembly: &Assembly) ->  ContigLoci { // returning a map f
 struct HIC {
     loci: Vec<usize>,
     alleles: Vec<bool>,
+    kmers: Vec<i32>,
 }
 
 fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) -> HashMap<i32, Vec<HIC>> { // returns map from contig id to list of HIC data structures
@@ -91,6 +92,7 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
         let mut the_contig: Option<i32> = None;
         let mut loci: Vec<usize> = Vec::new();
         let mut alleles: Vec<bool> = Vec::new();
+        let mut kmers: Vec<i32> = Vec::new();
         for var in mol {
             if let Some((contig, order)) = variant_contig_order.kmers.get(&var.abs()) {
                 if let Some(chrom) = the_contig {
@@ -101,6 +103,7 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
                         } else {
                             alleles.push(true);
                         }
+                        kmers.push(*var);
                     }
                 } else { the_contig = Some(*contig); }
 
@@ -108,7 +111,7 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
         }
         if loci.len() > 1 {
             let contig_mols = hic_mols.entry(the_contig.unwrap()).or_insert(Vec::new());
-            contig_mols.push( HIC{loci: loci, alleles: alleles}); 
+            contig_mols.push( HIC{loci: loci, alleles: alleles, kmers: kmers}); 
         }
     }
     
@@ -226,7 +229,8 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
             eprintln!("hic read {} with probabilities {:?}", readdex, probabilities);
             for cluster in 0..2 {
                 for i in 0..hic_read.loci.len() {
-                    eprintln!("\tcluster {} locus {} cluster center {} allele {}", cluster, hic_read.loci[i], cluster_centers[cluster][hic_read.loci[i]], hic_read.alleles[i]);
+                    eprintln!("\tcluster {} locus {} cluster center {} allele {}, kmer_id {}", 
+                        cluster, hic_read.loci[i], cluster_centers[cluster][hic_read.loci[i]], hic_read.alleles[i], hic_read.kmers[i]);
                 }
             }
             

@@ -186,6 +186,9 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig
 
 fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic_links: &Vec<HIC>, 
     params: &Params, epoch: usize, thread_num: usize) -> (f32, Vec<Vec<f32>>) {
+    if hic_links.len() == 0 {
+        eprintln!("no hic links?");
+    }
     let mut sums: Vec<Vec<f32>> = Vec::new();
     let mut denoms: Vec<Vec<f32>> = Vec::new();
     

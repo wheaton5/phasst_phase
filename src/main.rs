@@ -169,19 +169,23 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig
             for (contig, loci) in contig_loci.loci.iter() {
                 let cluster_centers: Vec<Vec<f32>> = init_cluster_centers(*loci, params, &mut thread_data.rng);
                 let contig_hic_links = hic_links.get(contig).unwrap();
-                let log_loss = expectation_maximization(*loci, cluster_centers, &contig_hic_links, params, iteration, thread_data.thread_num);
+                let (log_loss, cluster_centers) = expectation_maximization(*loci, cluster_centers, &contig_hic_links, params, iteration, thread_data.thread_num);
                 let best_log_prob_so_far = thread_data.best_total_log_probability.entry(*contig).or_insert(f32::NEG_INFINITY);
                 if &log_loss > best_log_prob_so_far {
                     thread_data.best_total_log_probability.insert(*contig, log_loss);
                 }
-                eprintln!("thread {} iteration {} done with {}, best so far {}", 
-                    thread_data.thread_num, iteration, log_loss, thread_data.best_total_log_probability.get(contig).unwrap());
+                eprintln!("thread {} contig {} iteration {} done with {}, best so far {}", 
+                    thread_data.thread_num, contig, iteration, log_loss, thread_data.best_total_log_probability.get(contig).unwrap());
+                for index in 0..cluster_centers[0].len() {
+                    eprintln!("{}\t{}", cluster_centers[0][index], cluster_centers[1][index]);
+                }
             }
         }
     });
 }
 
-fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic_links: &Vec<HIC>, params: &Params, epoch: usize, thread_num: usize) -> f32 {
+fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic_links: &Vec<HIC>, 
+    params: &Params, epoch: usize, thread_num: usize) -> (f32, Vec<Vec<f32>>) {
     let mut sums: Vec<Vec<f32>> = Vec::new();
     let mut denoms: Vec<Vec<f32>> = Vec::new();
     
@@ -227,7 +231,7 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
         iterations += 1;
         eprintln!("bernoulli\t{}\t{}\t{}\t{}\t{}", thread_num, epoch, iterations,  log_bernoulli_loss, log_loss_change);
     }
-    total_log_loss
+    (total_log_loss, cluster_centers)
 }
 
 

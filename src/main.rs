@@ -21,12 +21,16 @@ fn main() {
     let params = load_params();
     let kmers = Kmers::load_kmers(&params.het_kmers);
     //let (_variants, molecules) = load_molecule_kmers(&params.txg_mols, &params.hic_mols, &params.longread_mols, &kmers);
+    eprintln!("loading hic kmers");
     let hic_mols = load_hic(&params.hic_mols, &kmers);
+    eprintln!("loading assembly kmers");
     let assembly = load_assembly_kmers(&params.assembly_kmers, &kmers);
 
-    
+    eprintln!("finding good loci");
     let variant_contig_order: ContigLoci = good_assembly_loci(&assembly);
+    eprintln!("finding good hic reads");
     let hic_links: HashMap<i32, Vec<HIC>> = gather_hic_links(&hic_mols, &variant_contig_order);
+    eprintln!("phasing");
     phasst_phase_main(&params, &hic_links, &variant_contig_order);
 }
 
@@ -79,8 +83,10 @@ struct HIC {
 fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) -> HashMap<i32, Vec<HIC>> { // returns map from contig id to list of HIC data structures
     let mut hic_mols: HashMap<i32, Vec<HIC>> = HashMap::new();
 
-    
-    for (index, mol) in hic_molecules.get_hic_molecules().enumerate() {
+    for (contig, _) in variant_contig_order.loci.iter() {
+        hic_mols.insert(*contig, Vec::new());
+    }
+    for mol in hic_molecules.get_hic_molecules() {
         let mut the_contig: Option<i32> = None;
         let mut loci: Vec<usize> = Vec::new();
         let mut alleles: Vec<bool> = Vec::new();
@@ -104,6 +110,7 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
             contig_mols.push( HIC{loci: loci, alleles: alleles}); 
         }
     }
+    
     /*
     for (contig, mols) in contig_mols.iter() {
         let mut hic: Vec<HIC> = Vec::new();

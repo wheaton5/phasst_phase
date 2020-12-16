@@ -84,7 +84,7 @@ struct HIC {
 
 fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) -> HashMap<i32, Vec<HIC>> { // returns map from contig id to list of HIC data structures
     let mut hic_mols: HashMap<i32, Vec<HIC>> = HashMap::new();
-
+    let mut total = 0;
     for (contig, _) in variant_contig_order.loci.iter() {
         hic_mols.insert(*contig, Vec::new());
     }
@@ -113,8 +113,10 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
         if loci.len() > 1 {
             let contig_mols = hic_mols.entry(the_contig.unwrap()).or_insert(Vec::new());
             contig_mols.push( HIC{loci: loci, alleles: alleles}); 
+            total += 1;
         }
     }
+    eprintln!("after culling we have {} hic molecules hitting >=2 distinct loci", total);
     
     /*
     for (contig, mols) in contig_mols.iter() {

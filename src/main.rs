@@ -88,13 +88,17 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
     for (contig, _) in variant_contig_order.loci.iter() {
         hic_mols.insert(*contig, Vec::new());
     }
+    let mut counts: [u32; 3] = [0,0,0];
     for mol in hic_molecules.get_hic_molecules() {
         let mut the_contig: Option<i32> = None;
         let mut loci: Vec<usize> = Vec::new();
         let mut alleles: Vec<bool> = Vec::new();
         //let mut kmers: Vec<i32> = Vec::new();
         let mut used: HashSet<i32> = HashSet::new();
+        //let mut total = 0;
+        //let mut in_assembly = 0;
         for var in mol {
+            total += 1;
             if used.contains(&var.abs()) { continue; }
             if let Some((contig, order)) = variant_contig_order.kmers.get(&var.abs()) {
                 if let Some(chrom) = the_contig {
@@ -106,7 +110,15 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
                             alleles.push(true);
                         }
                     }
-                } else { the_contig = Some(*contig); }
+                } else { 
+                    the_contig = Some(*contig); 
+                    loci.push(*order);
+                    if var.abs() % 2 == 0 {
+                        alleles.push(false);
+                    } else {
+                        alleles.push(true);
+                    }
+                }
             }
             used.insert(var.abs());
         }

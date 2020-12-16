@@ -17,7 +17,7 @@ use hashbrown::{HashMap};
 use clap::{App};
 
 fn main() {
-    println!("Welcome to phasst phase!");
+    eprintln!("Welcome to phasst phase!");
     let params = load_params();
     eprintln!("loading kmers");
     let kmers = Kmers::load_kmers(&params.het_kmers);

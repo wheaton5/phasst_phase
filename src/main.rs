@@ -5,7 +5,7 @@ extern crate rayon;
 extern crate phasst_lib;
 extern crate rand;
 
-use phasst_lib::{Kmers, load_molecule_kmers, load_assembly_kmers, Molecules, Assembly};
+use phasst_lib::{Kmers, load_molecule_kmers, load_assembly_kmers, Molecules, Assembly, HicMols, load_hic};
 use rayon::prelude::*;
 
 use rand::Rng;
@@ -20,12 +20,13 @@ fn main() {
     println!("Welcome to phasst phase!");
     let params = load_params();
     let kmers = Kmers::load_kmers(&params.het_kmers);
-    let (_variants, molecules) = load_molecule_kmers(&params.txg_mols, &params.hic_mols, &params.longread_mols, &kmers);
+    //let (_variants, molecules) = load_molecule_kmers(&params.txg_mols, &params.hic_mols, &params.longread_mols, &kmers);
+    let hic_mols = load_hic(&params.hic_mols, &kmers);
     let assembly = load_assembly_kmers(&params.assembly_kmers, &kmers);
 
     
     let variant_contig_order: ContigLoci = good_assembly_loci(&assembly);
-    let hic_links: HashMap<i32, Vec<HIC>> = gather_hic_links(&molecules, &variant_contig_order);
+    let hic_links: HashMap<i32, Vec<HIC>> = gather_hic_links(&hic_mols, &variant_contig_order);
     phasst_phase_main(&params, &hic_links, &variant_contig_order);
 }
 
@@ -75,19 +76,35 @@ struct HIC {
     alleles: Vec<bool>,
 }
 
-fn gather_hic_links(molecules: &Molecules, variant_contig_order: &ContigLoci) -> HashMap<i32, Vec<HIC>> { // returns map from contig id to list of HIC data structures
+fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) -> HashMap<i32, Vec<HIC>> { // returns map from contig id to list of HIC data structures
     let mut hic_mols: HashMap<i32, Vec<HIC>> = HashMap::new();
 
-    let mut contig_mols: HashMap<i32, HashMap<i32, Vec<(i32, usize)>>> = HashMap::new();
-    for mol in molecules.get_hic_molecules() {
-        for var in molecules.get_hic_variants(*mol) {
+    
+    for (index, mol) in hic_molecules.get_hic_molecules().enumerate() {
+        let mut the_contig: Option<i32> = None;
+        let mut loci: Vec<usize> = Vec::new();
+        let mut alleles: Vec<bool> = Vec::new();
+        for var in mol {
             if let Some((contig, order)) = variant_contig_order.kmers.get(&var.abs()) {
-                let mols = contig_mols.entry(*contig).or_insert(HashMap::new());
-                let vars = mols.entry(*mol).or_insert(Vec::new());
-                vars.push((var.abs(), *order));
+                if let Some(chrom) = the_contig {
+                    if *contig == chrom {
+                        loci.push(*order);
+                        if var.abs() % 2 == 0 {
+                            alleles.push(false);
+                        } else {
+                            alleles.push(true);
+                        }
+                    }
+                } else { the_contig = Some(*contig); }
+
             }
         }
+        if loci.len() > 1 {
+            let contig_mols = hic_mols.entry(the_contig.unwrap()).or_insert(Vec::new());
+            contig_mols.push( HIC{loci: loci, alleles: alleles}); 
+        }
     }
+    /*
     for (contig, mols) in contig_mols.iter() {
         let mut hic: Vec<HIC> = Vec::new();
         for (_mol, vars) in mols.iter() {
@@ -107,7 +124,7 @@ fn gather_hic_links(molecules: &Molecules, variant_contig_order: &ContigLoci) ->
         }
         hic_mols.insert(*contig, hic);
     }
-
+    */
     hic_mols
 }
 
@@ -191,7 +208,6 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
             log_bernoulli_loss += log_sum_exp(&log_bernoullis);
             let probabilities = normalize_in_log(&log_bernoullis);
             
-            
             update_centers_average(&mut sums, &mut denoms, hic_read, &probabilities);
             final_log_probabilities[readdex] = log_bernoullis;
         }
@@ -205,6 +221,7 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
     }
     total_log_loss
 }
+
 
 fn update_final(loci: usize, sums: &Vec<Vec<f32>>, denoms: &Vec<Vec<f32>>, cluster_centers: &mut Vec<Vec<f32>>) {
     for locus in 0..loci {

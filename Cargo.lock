@@ -243,7 +243,7 @@ dependencies = [
 [[package]]
 name = "phasst_lib"
 version = "0.1.0"
-source = "git+https://github.com/wheaton5/phasst_lib.git?branch=main#6511f3b6c40e37de9a22409d511e95d2364b2ced"
+source = "git+https://github.com/wheaton5/phasst_lib.git?branch=main#c25142df521aafa117cbdffa528a9f107a7884a9"
 dependencies = [
  "byteorder",
  "disjoint-set",
@@ -255,7 +255,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "phuzzy_phazer"
+name = "phasst_phase"
 version = "0.1.0"
 dependencies = [
  "clap",

@@ -5,14 +5,14 @@ extern crate rayon;
 extern crate phasst_lib;
 extern crate rand;
 
-use phasst_lib::{Kmers, load_molecule_kmers, load_assembly_kmers, Molecules, Assembly, HicMols, load_hic};
+use phasst_lib::{Kmers, load_assembly_kmers, Assembly, HicMols, load_hic};
 use rayon::prelude::*;
 
 use rand::Rng;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-use hashbrown::{HashMap};
+use hashbrown::{HashMap, HashSet};
 
 use clap::{App};
 
@@ -79,7 +79,7 @@ fn good_assembly_loci(assembly: &Assembly) ->  ContigLoci { // returning a map f
 struct HIC {
     loci: Vec<usize>,
     alleles: Vec<bool>,
-    kmers: Vec<i32>,
+    //kmers: Vec<i32>,
 }
 
 fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) -> HashMap<i32, Vec<HIC>> { // returns map from contig id to list of HIC data structures
@@ -92,8 +92,10 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
         let mut the_contig: Option<i32> = None;
         let mut loci: Vec<usize> = Vec::new();
         let mut alleles: Vec<bool> = Vec::new();
-        let mut kmers: Vec<i32> = Vec::new();
+        //let mut kmers: Vec<i32> = Vec::new();
+        let mut used: HashSet<i32> = HashSet::new();
         for var in mol {
+            if used.contains(&var.abs()) { continue; }
             if let Some((contig, order)) = variant_contig_order.kmers.get(&var.abs()) {
                 if let Some(chrom) = the_contig {
                     if *contig == chrom {
@@ -103,15 +105,14 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
                         } else {
                             alleles.push(true);
                         }
-                        kmers.push(*var);
                     }
                 } else { the_contig = Some(*contig); }
-
             }
+            used.insert(var.abs());
         }
         if loci.len() > 1 {
             let contig_mols = hic_mols.entry(the_contig.unwrap()).or_insert(Vec::new());
-            contig_mols.push( HIC{loci: loci, alleles: alleles, kmers: kmers}); 
+            contig_mols.push( HIC{loci: loci, alleles: alleles}); 
         }
     }
     

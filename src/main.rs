@@ -79,6 +79,7 @@ fn good_assembly_loci(assembly: &Assembly) ->  ContigLoci { // returning a map f
 struct HIC {
     loci: Vec<usize>,
     alleles: Vec<bool>,
+    is_long: f32,
     //kmers: Vec<i32>,
 }
 
@@ -97,6 +98,8 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
         let mut loci: Vec<usize> = Vec::new();
         let mut alleles: Vec<bool> = Vec::new();
         let mut used: HashSet<i32> = HashSet::new();
+        let mut min: usize = std::usize::MAX;
+        let mut max: usize = 0;
         //let mut total = 0;
         //let mut in_assembly = 0;
 
@@ -104,6 +107,8 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
             if used.contains(&var.abs()) { used_count +=1 ; continue; }
             if let Some((contig, order)) = variant_contig_order.kmers.get(&var.abs()) {
                 if let Some(chrom) = the_contig {
+                    min = min.min(*order);
+                    max = max.max(*order);
                     if *contig == chrom {
                         loci.push(*order);
                         if var.abs() % 2 == 0 {
@@ -113,6 +118,8 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
                         }
                     } else { diff_contig += 1; }
                 } else { 
+                    min = min.min(*order);
+                    max = max.max(*order);
                     the_contig = Some(*contig); 
                     loci.push(*order);
                     if var.abs() % 2 == 0 {
@@ -126,7 +133,11 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
         }
         if loci.len() > 1 {
             let contig_mols = hic_mols.entry(the_contig.unwrap()).or_insert(Vec::new());
-            contig_mols.push( HIC{loci: loci, alleles: alleles}); 
+            let mut long_range = 1.0;
+            if max-min > 20 {
+                long_range = 100.0;
+            }
+            contig_mols.push( HIC{loci: loci, alleles: alleles, is_long: long_range}); 
             total += 1;
         }
     }
@@ -304,9 +315,9 @@ fn update_centers_average(sums: &mut Vec<Vec<f32>>, denoms: &mut Vec<Vec<f32>>, 
         for (cluster, probability) in probabilities.iter().enumerate() {
             match hic_read.alleles[locus] {
                 false => sums[cluster][hic_read.loci[locus]] += 0.0,
-                true => sums[cluster][hic_read.loci[locus]] += probability,
+                true => sums[cluster][hic_read.loci[locus]] += probability * hic_read.is_long,
             }
-            denoms[cluster][hic_read.loci[locus]] += probabilities[cluster];
+            denoms[cluster][hic_read.loci[locus]] += probabilities[cluster] * hic_read.is_long;
         }
     }
 }

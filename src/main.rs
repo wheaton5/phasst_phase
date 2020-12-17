@@ -250,7 +250,7 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
     let log_loss_change_limit = 0.000001 * (hic_links.len() as f32); // TODO fiddle with this in testing
     let mut last_log_loss = f32::NEG_INFINITY;
     let mut log_loss_change = 10000.0;
-    while log_loss_change > log_loss_change_limit && iterations < 100 {
+    while log_loss_change > log_loss_change_limit && iterations < 10000 {
         let mut log_bernoulli_loss = 0.0;
         reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);
         for (readdex, hic_read) in hic_links.iter().enumerate() { 

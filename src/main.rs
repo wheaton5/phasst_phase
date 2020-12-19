@@ -240,8 +240,9 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig
                             for locus in contig_hic_links[*hicdex].loci.iter() {
                                 centers.push((cluster_centers[0][*locus], cluster_centers[1][*locus]));
                             }
-                            eprintln!("\thicread\t{}\tloci\t{:?}\talleles\t{:?}\tclusters\t{:?}",
-                                hicdex, contig_hic_links[*hicdex].loci, contig_hic_links[*hicdex].alleles, centers);
+                            let probs = &hic_probabilities[*hicdex];
+                            eprintln!("\thicread\t{}\tloci\t{:?}\talleles\t{:?}\tclusters\t{:?}\tprobs{:?}",
+                                hicdex, contig_hic_links[*hicdex].loci, contig_hic_links[*hicdex].alleles, centers, probs);
                         }
                     }
                     // END DEBUG

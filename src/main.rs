@@ -197,10 +197,14 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig
 
     // First lets keep track of how many times each locus is hit by a hic molecule (that also hit something else)
     let mut locus_counts: HashMap<(i32, usize), u32> = HashMap::new();
-    for (contig, _loci) in contig_loci.loci.iter() {
+    let mut contig_locus_hic_mols: HashMap<i32, HashMap<usize, Vec<usize>>> = HashMap::new(); // TODO REMOVE DEBUG map from contig to a map from locus to vec of hic mols
+    for (contig, loci) in contig_loci.loci.iter() {
         let contig_hic_links = hic_links.get(contig).unwrap();
-        for hic_read in contig_hic_links.iter() { 
+        let locus_hic = contig_locus_hic_mols.entry(*contig).or_insert(HashMap::new()); //TODO REMOVE DEBUG
+        for (read_index, hic_read) in contig_hic_links.iter().enumerate() {
             for locus in hic_read.loci.iter() {
+                let hic_mols = locus_hic.entry(*locus).or_insert(Vec::new()); // TODO REMOVE DEBUG
+                hic_mols.push(read_index); //TODO REMOVE DEBUG
                 let count = locus_counts.entry((*contig, *locus)).or_insert(0);
                 *count += 1;
             }
@@ -209,9 +213,11 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig
     threads.par_iter_mut().for_each(|thread_data| {
         for iteration in 0..thread_data.solves_per_thread {
             for (contig, loci) in contig_loci.loci.iter() {
+                let locus_hic_mols = contig_locus_hic_mols.get(contig).unwrap(); // TODO REMOVE DEBUG
                 let cluster_centers: Vec<Vec<f32>> = init_cluster_centers(*loci, params, &mut thread_data.rng);
                 let contig_hic_links = hic_links.get(contig).unwrap();
-                let (log_loss, cluster_centers) = expectation_maximization(*loci, cluster_centers, &contig_hic_links, params, iteration, thread_data.thread_num);
+                let (log_loss, cluster_centers, hic_probabilities) = 
+                    expectation_maximization(*loci, cluster_centers, &contig_hic_links, params, iteration, thread_data.thread_num);
                 let best_log_prob_so_far = thread_data.best_total_log_probability.entry(*contig).or_insert(f32::NEG_INFINITY);
                 if &log_loss > best_log_prob_so_far {
                     thread_data.best_total_log_probability.insert(*contig, log_loss);
@@ -224,14 +230,31 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig
                         count = *x;
                     }
                     eprintln!("{}\t{}\t{}", cluster_centers[0][index], cluster_centers[1][index], count);
+                        // now i have hic_probabilities which gives me the probabilities of each hic molecule to each cluster
+                        // and i have contig_locus_hic_mols and now locus_hic_mols which gives me a map
+                        // from locus to a vec of hic mol indexes
+                    // TODO DEBUG HERE UNTIL NeXT DEBUG
+                    if let Some(hic_moldexes) = locus_hic_mols.get(&index) {
+                        for hicdex in hic_moldexes {
+                            let mut centers: Vec<(f32, f32)> = Vec::new();
+                            for locus in contig_hic_links[*hicdex].loci.iter() {
+                                centers.push((cluster_centers[0][*locus], cluster_centers[1][*locus]));
+                            }
+                            eprintln!("\thicread\t{}\tloci\t{:?}\talleles\t{:?}\tclusters\t{:?}",
+                                hicdex, contig_hic_links[*hicdex].loci, contig_hic_links[*hicdex].alleles, centers);
+                        }
+                    }
+                    // END DEBUG
                 }
             }
         }
     });
 }
 
+
 fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic_links: &Vec<HIC>, 
-    params: &Params, epoch: usize, thread_num: usize) -> (f32, Vec<Vec<f32>>) {
+        params: &Params, epoch: usize, thread_num: usize) -> (f32, Vec<Vec<f32>>,
+        Vec<Vec<f32>>) { // this is a vector of the hic molecules probabilities to each cluster
     if hic_links.len() == 0 {
         eprintln!("no hic links?");
     }
@@ -261,32 +284,21 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
     let log_loss_change_limit = 0.000001 * (hic_links.len() as f32); // TODO fiddle with this in testing
     let mut last_log_loss = f32::NEG_INFINITY;
     let mut log_loss_change = 10000.0;
+    let mut hic_probabilities: Vec<Vec<f32>> = Vec::new(); // TODO REMOVE DEBUG
+
     //while log_loss_change > log_loss_change_limit && iterations < 10000 {
-    while iterations < 1000 {
+    while iterations < 500 {
+        hic_probabilities.clear(); // TODO REMOVE DEBUG
+
         let mut log_bernoulli_loss = 0.0;
         reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);
         for (readdex, hic_read) in hic_links.iter().enumerate() { 
             let log_bernoullis = bernoulli_loss(hic_read, &cluster_centers, log_prior);
             log_bernoulli_loss += log_sum_exp(&log_bernoullis);
             let probabilities = normalize_in_log(&log_bernoullis);
-
-            update_centers_average(&mut sums, &mut denoms, hic_read, &probabilities);
-            /*
-            eprintln!("hic read {} with probabilities {:?}", readdex, probabilities);
-            for cluster in 0..2 {
-                for i in 0..hic_read.loci.len() {
-                    eprintln!("\tcluster {} locus {} cluster center {} allele {}", 
-                        cluster, hic_read.loci[i], cluster_centers[cluster][hic_read.loci[i]], hic_read.alleles[i]);
-                }
-            }
             
-            for cluster in 0..2 {
-                for i in 0..hic_read.loci.len() {
-                    eprintln!("\tcluster {} locus {} numerator {} denominator {}", 
-                        cluster, hic_read.loci[i], sums[cluster][hic_read.loci[i]], denoms[cluster][hic_read.loci[i]]);
-                }
-            }
-            */
+            update_centers_average(&mut sums, &mut denoms, hic_read, &probabilities);
+            hic_probabilities.push(probabilities);
             final_log_probabilities[readdex] = log_bernoullis;
         }
         total_log_loss = log_bernoulli_loss;
@@ -297,7 +309,7 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
         iterations += 1;
         eprintln!("bernoulli\t{}\t{}\t{}\t{}\t{}", thread_num, epoch, iterations,  log_bernoulli_loss, log_loss_change);
     }
-    (total_log_loss, cluster_centers)
+    (total_log_loss, cluster_centers, hic_probabilities)
 }
 
 

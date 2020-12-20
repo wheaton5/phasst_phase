@@ -288,7 +288,7 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
     let mut hic_probabilities: Vec<Vec<f32>> = Vec::new(); // TODO REMOVE DEBUG
 
     //while log_loss_change > log_loss_change_limit && iterations < 100 {
-    while iterations < 500 { // TODO figure out something better here
+    while iterations < 150 { // TODO figure out something better here
         hic_probabilities.clear(); // TODO REMOVE DEBUG
         let mut log_bernoulli_loss = 0.0;
         reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);
@@ -317,7 +317,7 @@ fn update_final(loci: usize, sums: &Vec<Vec<f32>>, denoms: &Vec<Vec<f32>>, clust
     for locus in 0..loci {
         for cluster in 0..sums.len() {
             let update = sums[cluster][locus]/denoms[cluster][locus];
-            cluster_centers[cluster][locus] = update.min(0.99).max(0.01);//max(0.0001, min(0.9999, update));
+            cluster_centers[cluster][locus] = update.min(0.9999).max(0.0001);//max(0.0001, min(0.9999, update));
         }
     }
 }

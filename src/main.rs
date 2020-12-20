@@ -313,6 +313,9 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
 
     //while log_loss_change > log_loss_change_limit && iterations < 100 {
     while iterations < 150 { // TODO figure out something better here
+        eprintln!("locus 5 and 6 centers {},{} and {},{}", cluster_centers[0][5], cluster_centers[1][5], cluster_centers[0][6],cluster_centers[1][6]);
+        eprintln!("locus 5 and 6 numerators {},{} and {},{}", sums[0][5], sums[1][5], sums[0][6], sums[1][6]);
+        eprintln!("locus 5 and 6 denominators {},{} and {},{}", denoms[0][5], denoms[1][5], denoms[0][6], denoms[1][6]);
         hic_probabilities.clear(); // TODO REMOVE DEBUG
         let mut log_bernoulli_loss = 0.0;
         reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);

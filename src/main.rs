@@ -18,6 +18,7 @@ use clap::{App};
 
 const LONG_RANGE_HIC: usize = 15000;
 const LONG_RANGE_HIC_WEIGHTING: f32 = 100.0;
+const MIN_ALLELE_FRACTION_HIC: f32 = 0.15;
 
 fn main() {
     eprintln!("Welcome to phasst phase!");
@@ -31,11 +32,30 @@ fn main() {
     let assembly = load_assembly_kmers(&params.assembly_kmers, &kmers);
 
     eprintln!("finding good loci");
-    let variant_contig_order: ContigLoci = good_assembly_loci(&assembly);
+    let allele_fractions = get_allele_fractions(&hic_mols); // MAYBE ADD LINKED READ AND LONG READ to this?
+    let variant_contig_order: ContigLoci = good_assembly_loci(&assembly, &allele_fractions);
     eprintln!("finding good hic reads");
     let (hic_links, long_hic_links) = gather_hic_links(&hic_mols, &variant_contig_order);
     eprintln!("phasing");
     phasst_phase_main(&params, &hic_links, &long_hic_links, &variant_contig_order);
+}
+
+fn get_allele_fractions(hic_mols: &HicMols) -> HashMap<i32, f32> {
+    let mut allele_fractions: HashMap<i32, f32> = HashMap::new();
+    let mut allele_counts: HashMap<i32, [u32; 2]> = HashMap::new();
+    for mol in hic_mols.get_hic_molecules() {
+        for var in mol {
+            let canonical = var.abs().min(Kmers::pair(var.abs()));
+            let count = allele_counts.entry(canonical).or_insert([0;2]);
+            if var.abs() % 2 == 0 { count[0] += 1; } else { count[1] += 1; }
+        }
+    }
+    for (canonical, counts) in allele_counts {
+        let fraction = (counts[0].min(counts[1]) as f32)/((counts[0]+ counts[1]) as f32);
+        allele_fractions.insert(canonical, fraction);
+        allele_fractions.insert(Kmers::pair(canonical), fraction);
+    }
+    allele_fractions
 }
 
 struct ContigLoci {
@@ -44,13 +64,17 @@ struct ContigLoci {
 }
 
 
-fn good_assembly_loci(assembly: &Assembly) ->  ContigLoci { // returning a map from kmer id to contig id and position
+fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>) ->  ContigLoci { // returning a map from kmer id to contig id and position
  
     let mut variant_contig_order: HashMap<i32, (i32, usize, usize)> = HashMap::new();
 
     let mut contig_positions: HashMap<i32, Vec<(usize, i32, i32)>> = HashMap::new();
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) { continue; } // we see both ref and alt in assembly, skip
+        if let Some(fraction) = allele_fractions.get(&kmer.abs()) {
+            if *fraction < MIN_ALLELE_FRACTION_HIC { continue; }
+        } else { continue; }
+
         if *num > 1 { continue; } // we see this kmer multiple times in the assembly, skip
         let positions = contig_positions.entry(*contig).or_insert(Vec::new());
         positions.push((*position, *kmer, *contig));

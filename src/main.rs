@@ -16,6 +16,9 @@ use hashbrown::{HashMap, HashSet};
 
 use clap::{App};
 
+const LONG_RANGE_HIC: usize = 15000;
+const LONG_RANGE_HIC_WEIGHTING: f32 = 100.0;
+
 fn main() {
     eprintln!("Welcome to phasst phase!");
     let params = load_params();
@@ -30,20 +33,20 @@ fn main() {
     eprintln!("finding good loci");
     let variant_contig_order: ContigLoci = good_assembly_loci(&assembly);
     eprintln!("finding good hic reads");
-    let hic_links: HashMap<i32, Vec<HIC>> = gather_hic_links(&hic_mols, &variant_contig_order);
+    let (hic_links, long_hic_links) = gather_hic_links(&hic_mols, &variant_contig_order);
     eprintln!("phasing");
-    phasst_phase_main(&params, &hic_links, &variant_contig_order);
+    phasst_phase_main(&params, &hic_links, &long_hic_links, &variant_contig_order);
 }
 
 struct ContigLoci {
-    kmers: HashMap<i32, (i32, usize)>, // map from kmer id to contig id and position
+    kmers: HashMap<i32, (i32, usize, usize)>, // map from kmer id to contig id and position
     loci: HashMap<i32, usize>, // map from contig id to number of loci
 }
 
 
 fn good_assembly_loci(assembly: &Assembly) ->  ContigLoci { // returning a map from kmer id to contig id and position
  
-    let mut variant_contig_order: HashMap<i32, (i32, usize)> = HashMap::new();
+    let mut variant_contig_order: HashMap<i32, (i32, usize, usize)> = HashMap::new();
 
     let mut contig_positions: HashMap<i32, Vec<(usize, i32, i32)>> = HashMap::new();
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
@@ -59,9 +62,9 @@ fn good_assembly_loci(assembly: &Assembly) ->  ContigLoci { // returning a map f
             poses.push((*pos, *kmer, *contig));
         }
         poses.sort();
-        for (index, (_position, kmer, contig)) in poses.iter().enumerate() {
-            variant_contig_order.insert(*kmer, (*contig, index));
-            variant_contig_order.insert(Kmers::pair(*kmer), (*contig, index));
+        for (index, (position, kmer, contig)) in poses.iter().enumerate() {
+            variant_contig_order.insert(*kmer, (*contig, index, *position));
+            variant_contig_order.insert(Kmers::pair(*kmer), (*contig, index, *position));
         }
     }
 
@@ -79,17 +82,21 @@ fn good_assembly_loci(assembly: &Assembly) ->  ContigLoci { // returning a map f
 struct HIC {
     loci: Vec<usize>,
     alleles: Vec<bool>,
-    is_long: f32,
+    long_weighting: f32,
     //kmers: Vec<i32>,
 }
 
-fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) -> HashMap<i32, Vec<HIC>> { // returns map from contig id to list of HIC data structures
+fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) -> 
+        (HashMap<i32, Vec<HIC>>, HashMap<i32, Vec<HIC>>) { // returns map from contig id to list of HIC data structures
     let mut hic_mols: HashMap<i32, Vec<HIC>> = HashMap::new();
+    let mut long_hic_mols: HashMap<i32, Vec<HIC>> = HashMap::new();
     let mut total = 0;
+    let mut total_long_links = 0;
     for (contig, _) in variant_contig_order.loci.iter() {
         hic_mols.insert(*contig, Vec::new());
+        long_hic_mols.insert(*contig, Vec::new());
     }
-    //let mut counts: [u32;3] = [0,0,0];
+    
     let mut used_count = 0;
     let mut not_assembly = 0;
     let mut diff_contig = 0;
@@ -100,15 +107,13 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
         let mut used: HashSet<i32> = HashSet::new();
         let mut min: usize = std::usize::MAX;
         let mut max: usize = 0;
-        //let mut total = 0;
-        //let mut in_assembly = 0;
 
         for var in mol {
             if used.contains(&var.abs()) { used_count +=1 ; continue; }
-            if let Some((contig, order)) = variant_contig_order.kmers.get(&var.abs()) {
+            if let Some((contig, order, position)) = variant_contig_order.kmers.get(&var.abs()) {
                 if let Some(chrom) = the_contig {
-                    min = min.min(*order);
-                    max = max.max(*order);
+                    min = min.min(*position);
+                    max = max.max(*position);
                     if *contig == chrom {
                         loci.push(*order);
                         if var.abs() % 2 == 0 {
@@ -118,8 +123,8 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
                         }
                     } else { diff_contig += 1; }
                 } else { 
-                    min = min.min(*order);
-                    max = max.max(*order);
+                    min = min.min(*position);
+                    max = max.max(*position);
                     the_contig = Some(*contig); 
                     loci.push(*order);
                     if var.abs() % 2 == 0 {
@@ -134,37 +139,26 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
         if loci.len() > 1 {
             let contig_mols = hic_mols.entry(the_contig.unwrap()).or_insert(Vec::new());
             let mut long_range = 1.0;
-            if max-min > 20 {
-                long_range = 100.0;
+            if max - min > LONG_RANGE_HIC {
+                long_range = LONG_RANGE_HIC_WEIGHTING;
+                let long_contig_mols = long_hic_mols.entry(the_contig.unwrap()).or_insert(Vec::new());
+                let mut long_loci: Vec<usize> = Vec::new();
+                let mut long_alleles: Vec<bool> = Vec::new();
+                for index in 0..loci.len(){
+                    long_loci.push(loci[index]);
+                    long_alleles.push(alleles[index]);
+                }
+                long_contig_mols.push( HIC{loci: long_loci, alleles: long_alleles, long_weighting: LONG_RANGE_HIC_WEIGHTING} );
+                total_long_links += 1;
             }
-            contig_mols.push( HIC{loci: loci, alleles: alleles, is_long: long_range}); 
+            contig_mols.push( HIC{loci: loci, alleles: alleles, long_weighting: long_range} ); 
             total += 1;
         }
     }
     eprintln!("after culling we have {} hic molecules hitting >=2 distinct loci", total);
     eprintln!("why did we lose kmers? overlaps (same kmer twice) {}, no assembly locus {}, cross contig {}", used_count, not_assembly, diff_contig);
-    /*
-    for (contig, mols) in contig_mols.iter() {
-        let mut hic: Vec<HIC> = Vec::new();
-        for (_mol, vars) in mols.iter() {
-            if vars.len() > 1 {
-                let mut loci: Vec<usize> = Vec::new();
-                let mut alleles: Vec<bool> = Vec::new();
-                for (var, index) in vars {
-                    loci.push(*index);
-                    if var % 2 == 0 {
-                        alleles.push(false);
-                    } else {
-                        alleles.push(true);
-                    }
-                }
-                hic.push(HIC{alleles: alleles, loci: loci});
-            }
-        }
-        hic_mols.insert(*contig, hic);
-    }
-    */
-    hic_mols
+    eprintln!("num long hic links {}", total_long_links);
+    (hic_mols, long_hic_mols)
 }
 
 
@@ -186,7 +180,8 @@ impl ThreadData {
     }
 }
 
-fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig_loci: &ContigLoci) {
+fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_hic_links: &HashMap<i32, Vec<HIC>>, 
+        contig_loci: &ContigLoci) {
     let seed = [params.seed; 32];
     let mut rng: StdRng = SeedableRng::from_seed(seed);
     let mut threads: Vec<ThreadData> = Vec::new();
@@ -216,6 +211,11 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, contig
                 let locus_hic_mols = contig_locus_hic_mols.get(contig).unwrap(); // TODO REMOVE DEBUG
                 let cluster_centers: Vec<Vec<f32>> = init_cluster_centers(*loci, params, &mut thread_data.rng);
                 let contig_hic_links = hic_links.get(contig).unwrap();
+                let long_contig_hic_links = long_hic_links.get(contig).unwrap();
+                eprintln!("solve with LONG LINKS ONLY");
+                let (log_loss, cluster_centers, hic_probabilities) =  // first solve with long links only
+                    expectation_maximization(*loci, cluster_centers, &long_contig_hic_links, params, iteration, thread_data.thread_num);
+                eprintln!("ALL HIC LINKS");
                 let (log_loss, cluster_centers, hic_probabilities) = 
                     expectation_maximization(*loci, cluster_centers, &contig_hic_links, params, iteration, thread_data.thread_num);
                 let best_log_prob_so_far = thread_data.best_total_log_probability.entry(*contig).or_insert(f32::NEG_INFINITY);
@@ -266,8 +266,8 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
         sums.push(Vec::new());
         denoms.push(Vec::new());
         for _index in 0..loci {
-            sums[cluster].push(0.5);
-            denoms[cluster].push(1.0); // psuedocounts
+            sums[cluster].push(0.1);
+            denoms[cluster].push(0.2); // psuedocounts
         }
     }
 
@@ -287,10 +287,9 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
     let mut log_loss_change = 10000.0;
     let mut hic_probabilities: Vec<Vec<f32>> = Vec::new(); // TODO REMOVE DEBUG
 
-    //while log_loss_change > log_loss_change_limit && iterations < 10000 {
-    while iterations < 500 {
+    //while log_loss_change > log_loss_change_limit && iterations < 100 {
+    while iterations < 500 { // TODO figure out something better here
         hic_probabilities.clear(); // TODO REMOVE DEBUG
-
         let mut log_bernoulli_loss = 0.0;
         reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);
         for (readdex, hic_read) in hic_links.iter().enumerate() { 
@@ -298,13 +297,13 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
             log_bernoulli_loss += log_sum_exp(&log_bernoullis);
             let probabilities = normalize_in_log(&log_bernoullis);
             
-            update_centers_average(&mut sums, &mut denoms, hic_read, &probabilities);
+            update_sums_denoms(&mut sums, &mut denoms, hic_read, &probabilities);
             hic_probabilities.push(probabilities);
             final_log_probabilities[readdex] = log_bernoullis;
         }
         total_log_loss = log_bernoulli_loss;
-        log_loss_change = log_bernoulli_loss - last_log_loss;//log_loss - last_log_loss;
-        last_log_loss = log_bernoulli_loss;//log_loss;
+        log_loss_change = log_bernoulli_loss - last_log_loss;
+        last_log_loss = log_bernoulli_loss;
 
         update_final(loci, &sums, &denoms, &mut cluster_centers);
         iterations += 1;
@@ -323,14 +322,14 @@ fn update_final(loci: usize, sums: &Vec<Vec<f32>>, denoms: &Vec<Vec<f32>>, clust
     }
 }
 
-fn update_centers_average(sums: &mut Vec<Vec<f32>>, denoms: &mut Vec<Vec<f32>>, hic_read: &HIC, probabilities: &Vec<f32>) {
+fn update_sums_denoms(sums: &mut Vec<Vec<f32>>, denoms: &mut Vec<Vec<f32>>, hic_read: &HIC, probabilities: &Vec<f32>) {
     for locus in 0..hic_read.loci.len() {
         for (cluster, probability) in probabilities.iter().enumerate() {
             match hic_read.alleles[locus] {
                 false => sums[cluster][hic_read.loci[locus]] += 0.0,
-                true => sums[cluster][hic_read.loci[locus]] += probability * hic_read.is_long,
+                true => sums[cluster][hic_read.loci[locus]] += probability,// * hic_read.long_weighting,
             }
-            denoms[cluster][hic_read.loci[locus]] += probabilities[cluster] * hic_read.is_long;
+            denoms[cluster][hic_read.loci[locus]] += probabilities[cluster];// * hic_read.long_weighting;
         }
     }
 }
@@ -373,8 +372,8 @@ fn reset_sums_denoms(loci: usize, sums: &mut Vec<Vec<f32>>,
     denoms: &mut Vec<Vec<f32>>, num_clusters: usize) {
     for cluster in 0..num_clusters {
         for index in 0..loci {
-            sums[cluster][index] = 0.50;
-            denoms[cluster][index] = 1.0;
+            sums[cluster][index] = 0.10;
+            denoms[cluster][index] = 0.20;
         }
     }
 }

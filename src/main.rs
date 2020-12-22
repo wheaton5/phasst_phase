@@ -391,7 +391,7 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
         reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);
         for (readdex, hic_read) in hic_links.iter().enumerate() {
             let log_likelihoods;
-            if iterations == 0 {
+            if iterations < 200 {
                 log_likelihoods = bernoulli_likelihood(hic_read, &cluster_centers, log_prior);
             } else {
                 log_likelihoods = beta_likelihood(hic_read, &cluster_centers, log_prior, &alphas, &betas);

@@ -277,10 +277,10 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
                 let contig_hic_links = hic_links.get(contig).unwrap();
                 let long_contig_hic_links = long_hic_links.get(contig).unwrap();
                 eprintln!("solve with LONG LINKS ONLY");
-                let (log_loss, cluster_centers, hic_probabilities) =  // first solve with long links only
+                let (log_loss, cluster_centers, hic_probabilities, _) =  // first solve with long links only
                     expectation_maximization(*loci, cluster_centers, &long_contig_hic_links, params, iteration, thread_data.thread_num);
                 eprintln!("ALL HIC LINKS");
-                let (log_loss, cluster_centers, hic_probabilities) = 
+                let (log_loss, cluster_centers, hic_probabilities, hic_likelihoods) = 
                     expectation_maximization(*loci, cluster_centers, &contig_hic_links, params, iteration, thread_data.thread_num);
                 let best_log_prob_so_far = thread_data.best_total_log_probability.entry(*contig).or_insert(f32::NEG_INFINITY);
                 if &log_loss > best_log_prob_so_far {
@@ -305,8 +305,9 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
                                 centers.push((cluster_centers[0][*locus], cluster_centers[1][*locus]));
                             }
                             let probs = &hic_probabilities[*hicdex];
-                            eprintln!("\thicread\t{}\tloci\t{:?}\talleles\t{:?}\tclusters\t{:?}\tprobs{:?}",
-                                hicdex, contig_hic_links[*hicdex].loci, contig_hic_links[*hicdex].alleles, centers, probs);
+                            let likes = &hic_likelihoods[*hicdex];
+                            eprintln!("\thicread {} loci {:?} alleles {:?} clusters {:?} probs{:?}likes {:?}",
+                                hicdex, contig_hic_links[*hicdex].loci, contig_hic_links[*hicdex].alleles, centers, probs, likes);
                         }
                     }
                     // END DEBUG
@@ -346,7 +347,7 @@ fn transfer_beta_priors(priors: &mut Vec<Vec<f32>>, next_priors: &Vec<Vec<f32>>)
 
 fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic_links: &Vec<HIC>, 
         params: &Params, epoch: usize, thread_num: usize) -> (f32, Vec<Vec<f32>>,
-        Vec<Vec<f32>>) { // this is a vector of the hic molecules probabilities to each cluster
+        Vec<Vec<f32>>, Vec<f32>) { // this is a vector of the hic molecules probabilities to each cluster
     if hic_links.len() == 0 {
         eprintln!("no hic links?");
     }
@@ -369,10 +370,6 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
     let mut total_log_loss = f32::NEG_INFINITY;
 
     let mut final_log_probabilities: Vec<Vec<f32>> = Vec::new();
-    let mut alphas: Vec<Vec<f32>> = get_beta_priors(&cluster_centers);
-    let mut betas: Vec<Vec<f32>> = get_beta_priors(&cluster_centers);
-    let mut alphas_next: Vec<Vec<f32>> = get_beta_priors(&cluster_centers);
-    let mut betas_next: Vec<Vec<f32>> = get_beta_priors(&cluster_centers);
     for _read in 0..hic_links.len() {
         final_log_probabilities.push(Vec::new());
     }
@@ -381,32 +378,21 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
     let mut last_log_loss = f32::NEG_INFINITY;
     let mut log_loss_change = 10000.0;
     let mut hic_probabilities: Vec<Vec<f32>> = Vec::new(); // TODO REMOVE DEBUG
+    let mut hic_likelihoods: Vec<f32> = Vec::new();
 
     //while log_loss_change > log_loss_change_limit && iterations < 100 {
     while iterations < 150 { // TODO figure out something better here
         hic_probabilities.clear(); // TODO REMOVE DEBUG
+        hic_likelihoods.clear();
         let mut log_likelihood = 0.0;
-        fill_beta_priors(&mut alphas_next);
-        fill_beta_priors(&mut betas_next);
         reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);
         for (readdex, hic_read) in hic_links.iter().enumerate() {
-            let log_likelihoods;
-            if iterations < 200 {
-                log_likelihoods = bernoulli_likelihood(hic_read, &cluster_centers, log_prior);
-            } else {
-                log_likelihoods = beta_likelihood(hic_read, &cluster_centers, log_prior, &alphas, &betas);
-            }
-            log_likelihood += log_sum_exp(&log_likelihoods);
+            
+            let log_likelihoods = bernoulli_likelihood(hic_read, &cluster_centers, log_prior);
+            let read_likelihood = log_sum_exp(&log_likelihoods);
+            hic_likelihoods.push(read_likelihood);
+            log_likelihood += read_likelihood;
             let probabilities = normalize_in_log(&log_likelihoods);
-            for (index, locus) in hic_read.loci.iter().enumerate() {
-                for (cluster, probability) in probabilities.iter().enumerate() {
-                    if hic_read.alleles[index] == true {
-                        betas_next[*locus][cluster] += probability;
-                    } else {
-                        alphas_next[*locus][cluster] += probability;
-                    }
-                }
-            }
             
             update_sums_denoms(&mut sums, &mut denoms, hic_read, &probabilities);
             hic_probabilities.push(probabilities);
@@ -415,13 +401,12 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
         total_log_loss = log_likelihood;
         log_loss_change = log_likelihood - last_log_loss;
         last_log_loss = log_likelihood;
-        transfer_beta_priors(&mut alphas, &alphas_next);
-        transfer_beta_priors(&mut betas, &betas_next);
+       
         update_cluster_centers(loci, &sums, &denoms, &mut cluster_centers);
         iterations += 1;
         eprintln!("bernoulli\t{}\t{}\t{}\t{}\t{}", thread_num, epoch, iterations,  log_likelihood, log_loss_change);
     }
-    (total_log_loss, cluster_centers, hic_probabilities)
+    (total_log_loss, cluster_centers, hic_probabilities, hic_likelihoods)
 }
 
 

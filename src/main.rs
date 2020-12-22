@@ -61,7 +61,7 @@ fn main() {
     let (hic_links, long_hic_links) = gather_hic_links(&hic_mols, &variant_contig_order);
     eprintln!("phasing");
     let mut connected_components = get_connected_components(&hic_links, &variant_contig_order, params.min_hic_links);
-    let contig3 = connected_components.get_mut(&3).unwrap();
+    let contig3 = connected_components.get_mut(&34).unwrap();
     eprintln!("testing connected components. 5 and 6 {} and {}, 10 and 11 {} {}", 
         contig3.find(5).unwrap(), contig3.find(6).unwrap(), contig3.find(10).unwrap(), contig3.find(11).unwrap());
     phasst_phase_main(&params, &hic_links, &long_hic_links, &variant_contig_order);

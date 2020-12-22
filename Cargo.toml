@@ -13,3 +13,4 @@ rayon = "*"
 phasst_lib = { git = "https://github.com/wheaton5/phasst_lib.git", branch = "main"}
 rand = "*"
 disjoint-set = "*"
+statrs = "*"

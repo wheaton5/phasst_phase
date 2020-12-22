@@ -5,6 +5,7 @@ extern crate rayon;
 extern crate phasst_lib;
 extern crate rand;
 extern crate disjoint_set;
+extern crate statrs;
 
 use phasst_lib::{Kmers, load_assembly_kmers, Assembly, HicMols, load_hic};
 use rayon::prelude::*;
@@ -15,6 +16,8 @@ use rand::SeedableRng;
 
 use hashbrown::{HashMap, HashSet};
 use disjoint_set::DisjointSet;
+//use statrs::distribution::{Beta, Continuous};
+use statrs::function::{beta};
 
 use clap::{App};
 
@@ -61,11 +64,7 @@ fn main() {
     let (hic_links, long_hic_links) = gather_hic_links(&hic_mols, &variant_contig_order);
     eprintln!("phasing");
     let mut connected_components = get_connected_components(&hic_links, &variant_contig_order, params.min_hic_links);
-    let contig3 = connected_components.get_mut(&34).unwrap();
-    eprintln!("testing connected components. 5 and 6 {} and {}, 10 and 11 {} {}", 
-        contig3.find(5).unwrap(), contig3.find(6).unwrap(), contig3.find(10).unwrap(), contig3.find(11).unwrap());
     phasst_phase_main(&params, &hic_links, &long_hic_links, &variant_contig_order);
-  
 }
 
 fn get_connected_components(hic_links: &HashMap<i32, Vec<HIC>>, variant_contig_order: &ContigLoci, min_links: u32) -> 
@@ -158,8 +157,6 @@ fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>)
         loci: loci,
     }
 }
-
-
 
 fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) -> 
         (HashMap<i32, Vec<HIC>>, HashMap<i32, Vec<HIC>>) { // returns map from contig id to list of HIC data structures
@@ -319,6 +316,25 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
     });
 }
 
+fn get_beta_priors(cluster_centers: &Vec<Vec<f32>>) -> Vec<Vec<f32>> {
+    let mut prior: Vec<Vec<f32>> = Vec::new();
+    for i in 0..cluster_centers[0].len() {
+        let mut ones = Vec::new();
+        for j in 0..cluster_centers.len() {
+            ones.push(1.0);
+        }
+        prior.push(ones);
+    }
+    prior
+}
+
+fn fill_beta_priors(priors: &mut Vec<Vec<f32>>) {
+    for i in 0..priors.len() {
+        for j in 0..priors[i].len() {
+            priors[i][j] = 1.0;
+        }
+    }
+}
 
 fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic_links: &Vec<HIC>, 
         params: &Params, epoch: usize, thread_num: usize) -> (f32, Vec<Vec<f32>>,
@@ -345,6 +361,8 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
     let mut total_log_loss = f32::NEG_INFINITY;
 
     let mut final_log_probabilities: Vec<Vec<f32>> = Vec::new();
+    let mut alphas: Vec<Vec<f32>> = get_beta_priors(&cluster_centers);
+    let mut betas: Vec<Vec<f32>> = get_beta_priors(&cluster_centers);
     for _read in 0..hic_links.len() {
         final_log_probabilities.push(Vec::new());
     }
@@ -357,24 +375,40 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
     //while log_loss_change > log_loss_change_limit && iterations < 100 {
     while iterations < 150 { // TODO figure out something better here
         hic_probabilities.clear(); // TODO REMOVE DEBUG
-        let mut log_bernoulli_loss = 0.0;
+        let mut log_likelihood = 0.0;
+        fill_beta_priors(&mut alphas);
+        fill_beta_priors(&mut betas);
         reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);
-        for (readdex, hic_read) in hic_links.iter().enumerate() { 
-            let log_bernoullis = bernoulli_loss(hic_read, &cluster_centers, log_prior);
-            log_bernoulli_loss += log_sum_exp(&log_bernoullis);
-            let probabilities = normalize_in_log(&log_bernoullis);
+        for (readdex, hic_read) in hic_links.iter().enumerate() {
+            let log_likelihoods;
+            if iterations == 0 {
+                log_likelihoods = bernoulli_likelihood(hic_read, &cluster_centers, log_prior);
+            } else {
+                log_likelihoods = beta_likelihood(hic_read, &cluster_centers, log_prior, &alphas, &betas);
+            }
+            log_likelihood += log_sum_exp(&log_likelihoods);
+            let probabilities = normalize_in_log(&log_likelihoods);
+            for (index, locus) in hic_read.loci.iter().enumerate() {
+                for (cluster, probability) in probabilities.iter().enumerate() {
+                    if hic_read.alleles[index] == true {
+                        betas[*locus][cluster] += probability;
+                    } else {
+                        alphas[*locus][cluster] += probability;
+                    }
+                }
+            }
             
             update_sums_denoms(&mut sums, &mut denoms, hic_read, &probabilities);
             hic_probabilities.push(probabilities);
-            final_log_probabilities[readdex] = log_bernoullis;
+            final_log_probabilities[readdex] = log_likelihoods;
         }
-        total_log_loss = log_bernoulli_loss;
-        log_loss_change = log_bernoulli_loss - last_log_loss;
-        last_log_loss = log_bernoulli_loss;
+        total_log_loss = log_likelihood;
+        log_loss_change = log_likelihood - last_log_loss;
+        last_log_loss = log_likelihood;
 
         update_cluster_centers(loci, &sums, &denoms, &mut cluster_centers);
         iterations += 1;
-        eprintln!("bernoulli\t{}\t{}\t{}\t{}\t{}", thread_num, epoch, iterations,  log_bernoulli_loss, log_loss_change);
+        eprintln!("bernoulli\t{}\t{}\t{}\t{}\t{}", thread_num, epoch, iterations,  log_likelihood, log_loss_change);
     }
     (total_log_loss, cluster_centers, hic_probabilities)
 }
@@ -412,7 +446,7 @@ fn normalize_in_log(log_probs: &Vec<f32>) -> Vec<f32> { // takes in a log_probab
     normalized_probabilities
 }
 
-fn bernoulli_loss(hic_read: &HIC, cluster_centers: &Vec<Vec<f32>>, log_prior: f32) -> Vec<f32> {
+fn bernoulli_likelihood(hic_read: &HIC, cluster_centers: &Vec<Vec<f32>>, log_prior: f32) -> Vec<f32> {
     let mut log_probabilities: Vec<f32> = Vec::new();
     for (cluster, center) in cluster_centers.iter().enumerate() {
         log_probabilities.push(log_prior);
@@ -424,8 +458,28 @@ fn bernoulli_loss(hic_read: &HIC, cluster_centers: &Vec<Vec<f32>>, log_prior: f3
     log_probabilities
 }
 
-fn ln_bernoulli(kmer: bool, p: f32) -> f32 {
-    match kmer {
+fn beta_likelihood(hic_read: &HIC, cluster_centers: &Vec<Vec<f32>>, log_prior: f32, alphas: &Vec<Vec<f32>>, betas: &Vec<Vec<f32>>) -> Vec<f32> {
+    let mut log_probabilities: Vec<f32> = Vec::new();
+    for (cluster, center) in cluster_centers.iter().enumerate() {
+        log_probabilities.push(log_prior);
+        for (locus_index, locus) in hic_read.loci.iter().enumerate() {
+            log_probabilities[cluster] += ln_beta(hic_read.alleles[locus_index], center[*locus] as f64, 
+                alphas[*locus][cluster] as f64, betas[*locus][cluster] as f64);
+        }
+    }
+    log_probabilities
+}
+
+fn ln_beta(allele: bool, p: f64, alpha: f64, beta: f64) -> f32 {
+    let p = match allele {
+        false => 1.0 - p,
+        true => p,
+    };
+    ((alpha - 1.0)*p + (beta - 1.0)*(1.0 - p) - beta::ln_beta(alpha, beta)) as f32
+}
+
+fn ln_bernoulli(allele: bool, p: f32) -> f32 {
+    match allele {
         false => (1.0 - p).ln(),
         true => p.ln(),
     }

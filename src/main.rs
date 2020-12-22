@@ -336,6 +336,14 @@ fn fill_beta_priors(priors: &mut Vec<Vec<f32>>) {
     }
 }
 
+fn transfer_beta_priors(priors: &mut Vec<Vec<f32>>, next_priors: &Vec<Vec<f32>>) {
+    for i in 0..priors.len() {
+        for j in 0..priors[i].len() {
+            priors[i][j] = next_priors[i][j];
+        }
+    }
+}
+
 fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic_links: &Vec<HIC>, 
         params: &Params, epoch: usize, thread_num: usize) -> (f32, Vec<Vec<f32>>,
         Vec<Vec<f32>>) { // this is a vector of the hic molecules probabilities to each cluster
@@ -363,6 +371,8 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
     let mut final_log_probabilities: Vec<Vec<f32>> = Vec::new();
     let mut alphas: Vec<Vec<f32>> = get_beta_priors(&cluster_centers);
     let mut betas: Vec<Vec<f32>> = get_beta_priors(&cluster_centers);
+    let mut alphas_next: Vec<Vec<f32>> = get_beta_priors(&cluster_centers);
+    let mut betas_next: Vec<Vec<f32>> = get_beta_priors(&cluster_centers);
     for _read in 0..hic_links.len() {
         final_log_probabilities.push(Vec::new());
     }
@@ -376,8 +386,8 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
     while iterations < 150 { // TODO figure out something better here
         hic_probabilities.clear(); // TODO REMOVE DEBUG
         let mut log_likelihood = 0.0;
-        fill_beta_priors(&mut alphas);
-        fill_beta_priors(&mut betas);
+        fill_beta_priors(&mut alphas_next);
+        fill_beta_priors(&mut betas_next);
         reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);
         for (readdex, hic_read) in hic_links.iter().enumerate() {
             let log_likelihoods;
@@ -391,9 +401,9 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
             for (index, locus) in hic_read.loci.iter().enumerate() {
                 for (cluster, probability) in probabilities.iter().enumerate() {
                     if hic_read.alleles[index] == true {
-                        alphas[*locus][cluster] += probability;
+                        betas_next[*locus][cluster] += probability;
                     } else {
-                        betas[*locus][cluster] += probability;
+                        alphas_next[*locus][cluster] += probability;
                     }
                 }
             }
@@ -405,7 +415,8 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
         total_log_loss = log_likelihood;
         log_loss_change = log_likelihood - last_log_loss;
         last_log_loss = log_likelihood;
-
+        transfer_beta_priors(&mut alphas, &alphas_next);
+        transfer_beta_priors(&mut betas, &betas_next);
         update_cluster_centers(loci, &sums, &denoms, &mut cluster_centers);
         iterations += 1;
         eprintln!("bernoulli\t{}\t{}\t{}\t{}\t{}", thread_num, epoch, iterations,  log_likelihood, log_loss_change);

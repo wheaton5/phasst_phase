@@ -391,9 +391,9 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
             for (index, locus) in hic_read.loci.iter().enumerate() {
                 for (cluster, probability) in probabilities.iter().enumerate() {
                     if hic_read.alleles[index] == true {
-                        betas[*locus][cluster] += probability;
-                    } else {
                         alphas[*locus][cluster] += probability;
+                    } else {
+                        betas[*locus][cluster] += probability;
                     }
                 }
             }

@@ -408,13 +408,8 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
             let read_likelihood = log_sum_exp(&log_likelihoods);
             hic_likelihoods.push(read_likelihood);
             log_likelihood += read_likelihood;
-            let mut probabilities = normalize_in_log(&log_likelihoods);
-            let mut likelihoods = Vec::new();
-           
-            for log_like in log_likelihoods.iter() {
-                likelihoods.push(log_like.exp());
-            }
-             if iterations > 100 { probabilities = likelihoods; }
+            let probabilities = normalize_in_log(&log_likelihoods);
+            
             update_sums_denoms(&mut sums, &mut denoms, hic_read, &probabilities); // &probabilities); // TESTING
             hic_probabilities.push(probabilities);
             final_log_probabilities[readdex] = log_likelihoods;

@@ -70,3 +70,8 @@ args:
         required: false
         help: ploidy of organism, default 2
         takes_value: true
+    - min_hic_links:
+        long: min_hic_links
+        required: false
+        help: minimum number of hic links to count in same phase block (default 4)
+        takes_value: true

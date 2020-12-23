@@ -5,7 +5,6 @@ extern crate rayon;
 extern crate phasst_lib;
 extern crate rand;
 extern crate disjoint_set;
-extern crate statrs;
 
 use phasst_lib::{Kmers, load_assembly_kmers, Assembly, HicMols, load_hic};
 use rayon::prelude::*;
@@ -59,12 +58,28 @@ fn main() {
 
     eprintln!("finding good loci");
     let allele_fractions = get_allele_fractions(&hic_mols); // MAYBE ADD LINKED READ AND LONG READ to this?
-    let variant_contig_order: ContigLoci = good_assembly_loci(&assembly, &allele_fractions);
+    let bad_alleles = get_bad_alleles(&hic_mols);
+    let variant_contig_order: ContigLoci = good_assembly_loci(&assembly, &allele_fractions, &bad_alleles);
     eprintln!("finding good hic reads");
     let (hic_links, long_hic_links) = gather_hic_links(&hic_mols, &variant_contig_order);
     eprintln!("phasing");
     let mut connected_components = get_connected_components(&hic_links, &variant_contig_order, params.min_hic_links);
     phasst_phase_main(&params, &hic_links, &long_hic_links, &variant_contig_order);
+}
+
+fn get_bad_alleles(hic_mols: &HicMols) -> HashSet<i32> {
+    let mut bad: HashSet<i32> = HashSet::new();
+    for mol in hic_mols.get_hic_molecules() {
+        for i in 0..mol.len() {
+            for j in (i+1)..mol.len() {
+                if Kmers::pair(mol[i].abs()) == mol[j].abs() {
+                    bad.insert(mol[i].abs());
+                    bad.insert(mol[j].abs());
+                }
+            }
+        }
+    }
+    bad
 }
 
 fn get_connected_components(hic_links: &HashMap<i32, Vec<HIC>>, variant_contig_order: &ContigLoci, min_links: u32) -> 
@@ -120,7 +135,7 @@ fn get_allele_fractions(hic_mols: &HicMols) -> HashMap<i32, f32> {
     allele_fractions
 }
 
-fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>) ->  ContigLoci { // returning a map from kmer id to contig id and position
+fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>, bad_alleles: &HashSet<i32>) ->  ContigLoci { // returning a map from kmer id to contig id and position
     let mut variant_contig_order: HashMap<i32, (i32, usize, usize)> = HashMap::new();
 
     let mut contig_positions: HashMap<i32, Vec<(usize, i32, i32)>> = HashMap::new();
@@ -128,6 +143,7 @@ fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>)
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) { continue; } // we see both ref and alt in assembly, skip
         if let Some(fraction) = allele_fractions.get(&kmer.abs()) {
             if *fraction < MIN_ALLELE_FRACTION_HIC { continue; }
+            if bad_alleles.contains(kmer) { continue; }
         } else { continue; }
 
         if *num > 1 { continue; } // we see this kmer multiple times in the assembly, skip

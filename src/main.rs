@@ -381,7 +381,7 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
         best_centers.insert(*contig, threads[*thread_id].cluster_centers.get(contig).unwrap().clone());
     }
     eprintln!("contig\thap1\thap2\treads\tassembly_allele\tphase");
-    for contig in 0..best_centers.len() {
+    for contig in 1..(best_centers.len()+1) {
         let cluster_centers = best_centers.get(&(contig as i32)).unwrap();
         let loci = contig_loci.loci.get(&(contig as i32)).unwrap();
         for index in 0..cluster_centers.clusters[0].center.len() {

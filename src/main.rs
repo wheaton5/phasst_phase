@@ -48,12 +48,7 @@ struct HIC {
     //kmers: Vec<i32>,
 }
 
-struct ThreadData {
-    best_total_log_probability: HashMap<i32, f32>, // best log prob for each contig
-    rng: StdRng,
-    solves_per_thread: usize,
-    thread_num: usize,
-}
+
 
 fn main() {
     eprintln!("Welcome to phasst phase!");
@@ -265,11 +260,30 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
     (hic_mols, long_hic_mols)
 }
 
+#[derive(Clone)]
+struct ClusterCenters {
+    clusters: Vec<ClusterCenter>,
+}
+
+#[derive(Clone)]
+struct ClusterCenter {
+    center: Vec<f32>,
+}
+
+struct ThreadData {
+    best_total_log_probability: HashMap<i32, f32>, // best log prob for each contig
+    cluster_centers: HashMap<i32, ClusterCenters>,
+    rng: StdRng,
+    solves_per_thread: usize,
+    thread_num: usize,
+} 
+
 impl ThreadData {
     fn from_seed(seed: [u8; 32], solves_per_thread: usize, thread_num: usize) -> ThreadData {
         ThreadData {
             best_total_log_probability: HashMap::new(),
             rng: SeedableRng::from_seed(seed),
+            cluster_centers: HashMap::new(),
             solves_per_thread: solves_per_thread,
             thread_num: thread_num,
         }
@@ -302,43 +316,40 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
         } 
     }
     threads.par_iter_mut().for_each(|thread_data| {
+        let mut best_centers: HashMap<i32, ClusterCenters> = HashMap::new();
         for iteration in 0..thread_data.solves_per_thread {
             for (contig, loci) in contig_loci.loci.iter() {
                 
-                let cluster_centers: Vec<Vec<f32>> = init_cluster_centers(loci.len(), params, &mut thread_data.rng);
+                let cluster_centers: ClusterCenters = init_cluster_centers(loci.len(), params, &mut thread_data.rng);
                 let contig_hic_links = hic_links.get(contig).unwrap();
                 let long_contig_hic_links = long_hic_links.get(contig).unwrap();
                 eprintln!("solve with LONG LINKS ONLY");
-                let (log_loss, cluster_centers, hic_probabilities, _) =  // first solve with long links only
+                let (_log_loss, cluster_centers, _hic_probabilities, _) =  // first solve with long links only
                     expectation_maximization(loci.len(), cluster_centers, &long_contig_hic_links, params, iteration, thread_data.thread_num);
                 eprintln!("ALL HIC LINKS");
                 let (log_loss, cluster_centers, hic_probabilities, hic_likelihoods) = 
                     expectation_maximization(loci.len(), cluster_centers, &contig_hic_links, params, iteration, thread_data.thread_num);
+                
                 let best_log_prob_so_far = thread_data.best_total_log_probability.entry(*contig).or_insert(f32::NEG_INFINITY);
                 if &log_loss > best_log_prob_so_far {
                     thread_data.best_total_log_probability.insert(*contig, log_loss);
+                    best_centers.insert(*contig, cluster_centers.clone());
                 }
                 eprintln!("thread {} contig {} iteration {} done with {}, best so far {}", 
                     thread_data.thread_num, contig, iteration, log_loss, thread_data.best_total_log_probability.get(contig).unwrap());
-                
-                for index in 0..cluster_centers[0].len() {
-                    let mut count = 0;
-                    if let Some(x) = locus_counts.get(&(*contig, index)){
-                        count = *x;
-                    }
-
-                    eprintln!("{}\t{}\t{}\tassembly allele\t{:?}", cluster_centers[0][index], cluster_centers[1][index], count, loci[index].allele);
-                        // now i have hic_probabilities which gives me the probabilities of each hic molecule to each cluster
-                        // and i have contig_locus_hic_mols and now locus_hic_mols which gives me a map
-                        // from locus to a vec of hic mol indexes
-                    // TODO DEBUG HERE UNTIL NeXT DEBUG
-                    if READ_DEBUG {
+                    
+                if READ_DEBUG {
+                    for index in 0..cluster_centers.clusters[0].center.len() {
+                        let mut count = 0;
+                        if let Some(x) = locus_counts.get(&(*contig, index)){
+                            count = *x;
+                        }
                         let locus_hic_mols = contig_locus_hic_mols.get(contig).unwrap(); 
                         if let Some(hic_moldexes) = locus_hic_mols.get(&index) {
                             for hicdex in hic_moldexes {
                                 let mut centers: Vec<(f32, f32)> = Vec::new();
                                 for locus in contig_hic_links[*hicdex].loci.iter() {
-                                    centers.push((cluster_centers[0][*locus], cluster_centers[1][*locus]));
+                                    centers.push((cluster_centers.clusters[0].center[*locus], cluster_centers.clusters[1].center[*locus]));
                                 }
                                 let probs = &hic_probabilities[*hicdex];
                                 let likes = &hic_likelihoods[*hicdex];
@@ -347,43 +358,51 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
                             }
                         }
                     }
-                    // END DEBUG
-                }
+                }   // END READ DEBUG
+            } // end contig loop
+        } // end cluster center solve iteration
+        thread_data.cluster_centers = best_centers;
+    }); // end parallel iter across threads
+
+    let mut best_centers: HashMap<i32, ClusterCenters> = HashMap::new();
+    let mut best_center_log_probabilities: HashMap<i32, f32> = HashMap::new();
+    let mut best_center_threads: HashMap<i32, usize> = HashMap::new();
+    for (thread_index, thread) in threads.iter().enumerate() {
+        for (contig, log_probability) in thread.best_total_log_probability.iter() {
+            let best = best_center_log_probabilities.entry(*contig).or_insert(f32::NEG_INFINITY);
+            if log_probability > best {
+                best_center_log_probabilities.insert(*contig, *log_probability);
+                best_center_threads.insert(*contig, thread_index);
             }
         }
-    });
-}
-
-fn get_beta_priors(cluster_centers: &Vec<Vec<f32>>) -> Vec<Vec<f32>> {
-    let mut prior: Vec<Vec<f32>> = Vec::new();
-    for i in 0..cluster_centers[0].len() {
-        let mut ones = Vec::new();
-        for j in 0..cluster_centers.len() {
-            ones.push(1.0);
-        }
-        prior.push(ones);
     }
-    prior
-}
 
-fn fill_beta_priors(priors: &mut Vec<Vec<f32>>) {
-    for i in 0..priors.len() {
-        for j in 0..priors[i].len() {
-            priors[i][j] = 1.0;
-        }
+    for (contig, thread_id) in best_center_threads.iter() {
+        best_centers.insert(*contig, threads[*thread_id].cluster_centers.get(contig).unwrap().clone());
     }
-}
-
-fn transfer_beta_priors(priors: &mut Vec<Vec<f32>>, next_priors: &Vec<Vec<f32>>) {
-    for i in 0..priors.len() {
-        for j in 0..priors[i].len() {
-            priors[i][j] = next_priors[i][j];
+    eprintln!("contig\thap1\thap2\treads\tassembly_allele\tphase");
+    for contig in 0..best_centers.len() {
+        let cluster_centers = best_centers.get(&(contig as i32)).unwrap();
+        let loci = contig_loci.loci.get(&(contig as i32)).unwrap();
+        for index in 0..cluster_centers.clusters[0].center.len() {
+            let mut count = 0;
+            if let Some(x) = locus_counts.get(&((contig as i32), index)) {
+                count = *x;
+            }
+            let phase = match loci[index].allele {
+                Allele::reference => cluster_centers.clusters[0].center[index] - cluster_centers.clusters[1].center[index],
+                Allele::alternate => cluster_centers.clusters[1].center[index] - cluster_centers.clusters[0].center[index],
+            };
+            eprintln!("{}\t{}\t{}\t{}\t{:?}\t{}", contig, cluster_centers.clusters[0].center[index], 
+                        cluster_centers.clusters[1].center[index], count, loci[index].allele, phase);
         }
     }
+     
+
 }
 
-fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic_links: &Vec<HIC>, 
-        params: &Params, epoch: usize, thread_num: usize) -> (f32, Vec<Vec<f32>>,
+fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hic_links: &Vec<HIC>, 
+        params: &Params, epoch: usize, thread_num: usize) -> (f32, ClusterCenters,
         Vec<Vec<f32>>, Vec<f32>) { // this is a vector of the hic molecules probabilities to each cluster
     if hic_links.len() == 0 {
         eprintln!("no hic links?");
@@ -447,12 +466,12 @@ fn expectation_maximization(loci: usize, mut cluster_centers: Vec<Vec<f32>>, hic
 }
 
 
-fn update_cluster_centers(loci: usize, sums: &Vec<Vec<f32>>, denoms: &Vec<Vec<f32>>, cluster_centers: &mut Vec<Vec<f32>>) {
+fn update_cluster_centers(loci: usize, sums: &Vec<Vec<f32>>, denoms: &Vec<Vec<f32>>, cluster_centers: &mut ClusterCenters) {
     for locus in 0..loci {
         for cluster in 0..sums.len() {
             if denoms[cluster][locus] > 1.0 {
                 let update = sums[cluster][locus]/denoms[cluster][locus];
-                cluster_centers[cluster][locus] = update.min(0.9999).max(0.0001);//max(0.0001, min(0.9999, update));
+                cluster_centers.clusters[cluster].center[locus] = update.min(0.9999).max(0.0001);//max(0.0001, min(0.9999, update));
             }
         }
     }
@@ -479,12 +498,12 @@ fn normalize_in_log(log_probs: &Vec<f32>) -> Vec<f32> { // takes in a log_probab
     normalized_probabilities
 }
 
-fn bernoulli_likelihood(hic_read: &HIC, cluster_centers: &Vec<Vec<f32>>, log_prior: f32) -> Vec<f32> {
+fn bernoulli_likelihood(hic_read: &HIC, cluster_centers: &ClusterCenters, log_prior: f32) -> Vec<f32> {
     let mut log_probabilities: Vec<f32> = Vec::new();
-    for (cluster, center) in cluster_centers.iter().enumerate() {
+    for (cluster, center) in cluster_centers.clusters.iter().enumerate() {
         log_probabilities.push(log_prior);
         for (locus_index, locus) in hic_read.loci.iter().enumerate() {
-            log_probabilities[cluster] += ln_bernoulli(hic_read.alleles[locus_index], center[*locus]);
+            log_probabilities[cluster] += ln_bernoulli(hic_read.alleles[locus_index], center.center[*locus]);
         }
     }
     
@@ -514,13 +533,14 @@ fn reset_sums_denoms(loci: usize, sums: &mut Vec<Vec<f32>>,
     }
 }
 
-fn init_cluster_centers(loci: usize, params: &Params, rng: &mut StdRng) -> Vec<Vec<f32>> {
-    let mut centers: Vec<Vec<f32>> = Vec::new();
-    for cluster in 0..params.ploidy {
-        centers.push(Vec::new());
+fn init_cluster_centers(loci: usize, params: &Params, rng: &mut StdRng) -> ClusterCenters {
+    let mut centers: ClusterCenters = ClusterCenters{ clusters: Vec::new() };
+    for _cluster in 0..params.ploidy {
+        let mut center = ClusterCenter{ center: Vec::new() };
         for _ in 0..loci {
-            centers[cluster].push(rng.gen::<f32>().min(0.99).max(0.01));
+            center.center.push(rng.gen::<f32>().min(0.99).max(0.01));
         }
+        centers.clusters.push(center);
     }
     centers
 }

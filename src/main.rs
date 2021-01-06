@@ -22,7 +22,7 @@ use clap::{App};
 const LONG_RANGE_HIC: usize = 15000;
 const LONG_RANGE_HIC_WEIGHTING: f32 = 100.0;
 const MIN_ALLELE_FRACTION_HIC: f32 = 0.15;
-const READ_DEBUG: bool = true;
+const READ_DEBUG: bool = false;
 
 struct ContigLoci {
     kmers: HashMap<i32, ContigLocus>, // map from kmer id to contig id and position and which allele assembly had
@@ -388,8 +388,10 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
     for (contig, thread_id) in best_center_threads.iter() {
         best_centers.insert(*contig, threads[*thread_id].cluster_centers.get(contig).unwrap().clone());
     }
-    eprintln!("contig\thap1\thap2\treads\tassembly_allele\tphase");
+    println!("contig\thap1\thap2\treads\tassembly_allele\tphase");
     for contig in 1..(best_centers.len()+1) {
+        if !contig_loci.loci.contains_key(&(contig as i32)) { eprintln!("contig loci doesnt contain contig {}", contig); continue; }
+        if !best_centers.contains_key(&(contig as i32)) { eprintln!("best centers doesnt contain contig {}", contig); continue; }
         let cluster_centers = best_centers.get(&(contig as i32)).unwrap();
         let loci = contig_loci.loci.get(&(contig as i32)).unwrap();
         for index in 0..cluster_centers.clusters[0].center.len() {
@@ -401,8 +403,16 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
                 Allele::Ref => cluster_centers.clusters[0].center[index] - cluster_centers.clusters[1].center[index],
                 Allele::Alt => cluster_centers.clusters[1].center[index] - cluster_centers.clusters[0].center[index],
             };
-            eprintln!("{}\t{}\t{}\t{}\t{:?}\t{}", contig, cluster_centers.clusters[0].center[index], 
-                        cluster_centers.clusters[1].center[index], count, loci[index].allele, phase);
+            let alt_frac = match loci[index].allele {
+                Allele::Ref => cluster_centers.clusters[1].center[index],
+                Allele::Alt => cluster_centers.clusters[0].center[index],
+            };
+            let ref_frac = match loci[index].allele {
+                Allele::Ref => cluster_centers.clusters[0].center[index],
+                Allele::Alt => cluster_centers.clusters[1].center[index],
+            };
+            println!("{}\t{}\t{}\t{}\t{:?}\t{}", contig, ref_frac, 
+                        alt_frac, count, loci[index].allele, phase);
         }
     }
      

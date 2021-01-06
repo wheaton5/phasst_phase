@@ -1,4 +1,5 @@
 #[macro_use]
+
 extern crate clap;
 extern crate hashbrown;
 extern crate rayon;
@@ -519,8 +520,8 @@ fn bernoulli_likelihood(hic_read: &HIC, cluster_centers: &ClusterCenters, log_pr
 
 fn ln_bernoulli(allele: Allele, p: f32) -> f32 {
     match allele {
-        reference => (1.0 - p).ln(),
-        alternate => p.ln(),
+        Allele::reference => (1.0 - p).ln(),
+        Allele::alternate => p.ln(),
     }
 }
 

@@ -21,7 +21,7 @@ use clap::{App};
 const LONG_RANGE_HIC: usize = 15000;
 const LONG_RANGE_HIC_WEIGHTING: f32 = 100.0;
 const MIN_ALLELE_FRACTION_HIC: f32 = 0.15;
-const READ_DEBUG: bool = false;
+const READ_DEBUG: bool = true;
 
 struct ContigLoci {
     kmers: HashMap<i32, ContigLocus>, // map from kmer id to contig id and position and which allele assembly had
@@ -345,6 +345,13 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
                             count = *x;
                         }
                         let locus_hic_mols = contig_locus_hic_mols.get(contig).unwrap(); 
+                        
+                        let phase = match loci[index].allele {
+                            Allele::reference => cluster_centers.clusters[0].center[index] - cluster_centers.clusters[1].center[index],
+                            Allele::alternate => cluster_centers.clusters[1].center[index] - cluster_centers.clusters[0].center[index],
+                        };
+                        eprintln!("{}\t{}\t{}\t{}\t{:?}\t{}", contig, cluster_centers.clusters[0].center[index], 
+                        cluster_centers.clusters[1].center[index], count, loci[index].allele, phase);
                         if let Some(hic_moldexes) = locus_hic_mols.get(&index) {
                             for hicdex in hic_moldexes {
                                 let mut centers: Vec<(f32, f32)> = Vec::new();

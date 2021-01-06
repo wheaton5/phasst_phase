@@ -39,7 +39,7 @@ struct ContigLocus {
 
 #[derive(Debug, Clone, Copy)]
 enum Allele {
-    reference, alternate,
+    Ref, Alt,
 }
 
 struct HIC {
@@ -75,8 +75,8 @@ fn main() {
 
 fn allele(kmer: i32) -> Allele {
     match kmer.abs() % 2 == 0 {
-        true => Allele::reference,
-        false => Allele::alternate,
+        true => Allele::Ref,
+        false => Allele::Alt,
     }
 }
 
@@ -304,7 +304,7 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
     // First lets keep track of how many times each locus is hit by a hic molecule (that also hit something else)
     let mut locus_counts: HashMap<(i32, usize), u32> = HashMap::new();
     let mut contig_locus_hic_mols: HashMap<i32, HashMap<usize, Vec<usize>>> = HashMap::new(); // TODO REMOVE DEBUG map from contig to a map from locus to vec of hic mols
-    for (contig, loci) in contig_loci.loci.iter() {
+    for (contig, _loci) in contig_loci.loci.iter() {
         let contig_hic_links = hic_links.get(contig).unwrap();
         let locus_hic = contig_locus_hic_mols.entry(*contig).or_insert(HashMap::new()); //TODO REMOVE DEBUG
         for (read_index, hic_read) in contig_hic_links.iter().enumerate() {
@@ -348,8 +348,8 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
                         let locus_hic_mols = contig_locus_hic_mols.get(contig).unwrap(); 
                         
                         let phase = match loci[index].allele {
-                            Allele::reference => cluster_centers.clusters[0].center[index] - cluster_centers.clusters[1].center[index],
-                            Allele::alternate => cluster_centers.clusters[1].center[index] - cluster_centers.clusters[0].center[index],
+                            Allele::Ref => cluster_centers.clusters[0].center[index] - cluster_centers.clusters[1].center[index],
+                            Allele::Alt => cluster_centers.clusters[1].center[index] - cluster_centers.clusters[0].center[index],
                         };
                         eprintln!("{}\t{}\t{}\t{}\t{:?}\t{}", contig, cluster_centers.clusters[0].center[index], 
                         cluster_centers.clusters[1].center[index], count, loci[index].allele, phase);
@@ -398,8 +398,8 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
                 count = *x;
             }
             let phase = match loci[index].allele {
-                Allele::reference => cluster_centers.clusters[0].center[index] - cluster_centers.clusters[1].center[index],
-                Allele::alternate => cluster_centers.clusters[1].center[index] - cluster_centers.clusters[0].center[index],
+                Allele::Ref => cluster_centers.clusters[0].center[index] - cluster_centers.clusters[1].center[index],
+                Allele::Alt => cluster_centers.clusters[1].center[index] - cluster_centers.clusters[0].center[index],
             };
             eprintln!("{}\t{}\t{}\t{}\t{:?}\t{}", contig, cluster_centers.clusters[0].center[index], 
                         cluster_centers.clusters[1].center[index], count, loci[index].allele, phase);
@@ -439,8 +439,8 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
     }
 
     let log_loss_change_limit = 0.000001 * (hic_links.len() as f32); // TODO fiddle with this in testing
+    let mut log_loss_change;
     let mut last_log_loss = f32::NEG_INFINITY;
-    let mut log_loss_change = 10000.0;
     let mut hic_probabilities: Vec<Vec<f32>> = Vec::new(); // TODO REMOVE DEBUG
     let mut hic_likelihoods: Vec<f32> = Vec::new();
 
@@ -489,8 +489,8 @@ fn update_sums_denoms(sums: &mut Vec<Vec<f32>>, denoms: &mut Vec<Vec<f32>>, hic_
     for locus in 0..hic_read.loci.len() {
         for (cluster, probability) in probabilities.iter().enumerate() {
             match hic_read.alleles[locus] {
-                reference => sums[cluster][hic_read.loci[locus]] += 0.0,
-                alternate => sums[cluster][hic_read.loci[locus]] += probability,// * hic_read.long_weighting,
+                Allele::Ref => sums[cluster][hic_read.loci[locus]] += 0.0,
+                Allele::Alt => sums[cluster][hic_read.loci[locus]] += probability,// * hic_read.long_weighting,
             }
             denoms[cluster][hic_read.loci[locus]] += probabilities[cluster];// * hic_read.long_weighting;
         }
@@ -520,8 +520,8 @@ fn bernoulli_likelihood(hic_read: &HIC, cluster_centers: &ClusterCenters, log_pr
 
 fn ln_bernoulli(allele: Allele, p: f32) -> f32 {
     match allele {
-        Allele::reference => (1.0 - p).ln(),
-        Allele::alternate => p.ln(),
+        Allele::Ref => (1.0 - p).ln(),
+        Allele::Alt => p.ln(),
     }
 }
 

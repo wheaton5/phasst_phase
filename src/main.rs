@@ -155,6 +155,11 @@ fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>,
 
     let mut contig_positions: HashMap<i32, Vec<(usize, i32, i32)>> = HashMap::new();
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
+
+        // TODODODODODODODODODODo
+        if *contig != 2 { continue; } // TODO remove
+
+
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) { continue; } // we see both ref and alt in assembly, skip
         if let Some(fraction) = allele_fractions.get(&kmer.abs()) {
             if *fraction < MIN_ALLELE_FRACTION_HIC { continue; }

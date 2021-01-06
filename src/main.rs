@@ -157,7 +157,7 @@ fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>,
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
 
         // TODODODODODODODODODODo
-        if *contig != 2 { continue; } // TODO remove
+        //if *contig != 2 { continue; } // TODO remove
 
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) { continue; } // we see both ref and alt in assembly, skip
@@ -393,7 +393,7 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
     for (contig, thread_id) in best_center_threads.iter() {
         best_centers.insert(*contig, threads[*thread_id].cluster_centers.get(contig).unwrap().clone());
     }
-    println!("contig\thap1\thap2\treads\tassembly_allele\tphase");
+    println!("contig\tposition\thap1\thap2\treads\tassembly_allele\tphase");
     for contig in 1..(best_centers.len()+2) {
         if !contig_loci.loci.contains_key(&(contig as i32)) { eprintln!("contig loci doesnt contain contig {}", contig); continue; }
         if !best_centers.contains_key(&(contig as i32)) { eprintln!("best centers doesnt contain contig {}", contig); continue; }
@@ -404,6 +404,7 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
             if let Some(x) = locus_counts.get(&((contig as i32), index)) {
                 count = *x;
             }
+            let position = loci[index].position;
             let phase = match loci[index].allele {
                 Allele::Ref => cluster_centers.clusters[0].center[index] - cluster_centers.clusters[1].center[index],
                 Allele::Alt => cluster_centers.clusters[1].center[index] - cluster_centers.clusters[0].center[index],
@@ -416,7 +417,7 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
                 Allele::Ref => cluster_centers.clusters[0].center[index],
                 Allele::Alt => cluster_centers.clusters[1].center[index],
             };
-            println!("{}\t{}\t{}\t{}\t{:?}\t{}", contig, ref_frac, 
+            println!("{}\t{}\t{}\t{}\t{}\t{:?}\t{}", contig, position, ref_frac, 
                         alt_frac, count, loci[index].allele, phase);
         }
     }

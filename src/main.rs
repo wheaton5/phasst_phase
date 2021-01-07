@@ -22,7 +22,7 @@ use clap::{App};
 const LONG_RANGE_HIC: usize = 15000;
 const LONG_RANGE_HIC_WEIGHTING: f32 = 100.0;
 const MIN_ALLELE_FRACTION_HIC: f32 = 0.15;
-const READ_DEBUG: bool = false;
+const READ_DEBUG: bool = true;
 
 struct ContigLoci {
     kmers: HashMap<i32, ContigLocus>, // map from kmer id to contig id and position and which allele assembly had
@@ -157,7 +157,7 @@ fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>,
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
 
         // TODODODODODODODODODODo
-        //if *contig != 2 { continue; } // TODO remove
+        if *contig != 30 { continue; } // TODO remove
 
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) { continue; } // we see both ref and alt in assembly, skip

@@ -22,7 +22,7 @@ use clap::{App};
 const LONG_RANGE_HIC: usize = 15000;
 const LONG_RANGE_HIC_WEIGHTING: f32 = 100.0;
 const MIN_ALLELE_FRACTION_HIC: f32 = 0.15;
-const READ_DEBUG: bool = true;
+const READ_DEBUG: bool = false;
 
 struct ContigLoci {
     kmers: HashMap<i32, ContigLocus>, // map from kmer id to contig id and position and which allele assembly had
@@ -157,7 +157,7 @@ fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>,
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
 
         // TODODODODODODODODODODo
-        if *contig != 30 { continue; } // TODO remove
+        if *contig != 2 { continue; } // TODO remove
 
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) { continue; } // we see both ref and alt in assembly, skip
@@ -473,8 +473,9 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
             hic_likelihoods.push(read_likelihood);
             log_likelihood += read_likelihood;
             let probabilities = normalize_in_log(&log_likelihoods);
+            if iterations > 140 && read_likelihood < -1.0 { continue; } // TODO DEBUG NOT SURE
             
-            update_sums_denoms(&mut sums, &mut denoms, hic_read, &probabilities); // &probabilities); // TESTING
+            update_sums_denoms(&mut sums, &mut denoms, hic_read, &probabilities); 
             hic_probabilities.push(probabilities);
             final_log_probabilities[readdex] = log_likelihoods;
         }

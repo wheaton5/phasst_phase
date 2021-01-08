@@ -42,6 +42,8 @@ enum Allele {
     Ref, Alt,
 }
 
+
+#[derive(Clone)]
 struct HIC {
     loci: Vec<usize>,
     alleles: Vec<Allele>,
@@ -433,6 +435,11 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
     }
     let mut sums: Vec<Vec<f32>> = Vec::new();
     let mut denoms: Vec<Vec<f32>> = Vec::new();
+
+    let mut variant_hic_reads: Vec<Vec<HIC>> = Vec::new();
+    for _ in 0..cluster_centers.clusters[0].center.len() {
+        variant_hic_reads.push(Vec::new());
+    }
     
     for cluster in 0..params.ploidy {
         sums.push(Vec::new());
@@ -471,9 +478,10 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
             let log_likelihoods = bernoulli_likelihood(hic_read, &cluster_centers, log_prior);
             let read_likelihood = log_sum_exp(&log_likelihoods);
             hic_likelihoods.push(read_likelihood);
+            //if iterations > 140 && read_likelihood < -1.0 { continue; } // TODO DEBUG NOT SURE
             log_likelihood += read_likelihood;
             let probabilities = normalize_in_log(&log_likelihoods);
-            if iterations > 140 && read_likelihood < -1.0 { continue; } // TODO DEBUG NOT SURE
+            
             
             update_sums_denoms(&mut sums, &mut denoms, hic_read, &probabilities); 
             hic_probabilities.push(probabilities);

@@ -508,7 +508,7 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
                     total_likelihood += read_likelihood;
                 }
                 //println!("{}\t{}", total_likelihood, reads);
-                if total_likelihood/ reads < 0.75 {
+                if reads != 0.0 && total_likelihood / reads < -0.75 {
                     locus_filter[loci] = false;
                 }
             }

@@ -440,6 +440,11 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
     for _ in 0..cluster_centers.clusters[0].center.len() {
         variant_hic_reads.push(Vec::new());
     }
+    for hic in hic_links {
+        for locus in hic.loci.iter() {
+            variant_hic_reads[*locus].push(hic.clone());
+        }
+    }
     
     for cluster in 0..params.ploidy {
         sums.push(Vec::new());
@@ -486,6 +491,21 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
             update_sums_denoms(&mut sums, &mut denoms, hic_read, &probabilities); 
             hic_probabilities.push(probabilities);
             final_log_probabilities[readdex] = log_likelihoods;
+        }
+
+        if iterations == 140 {
+            
+            for loci in 0..cluster_centers.clusters[0].center.len() {
+                let mut total_likelihood = 0.0;
+                let reads = variant_hic_reads[loci].len() as f32;
+                for read in variant_hic_reads[loci].iter() {
+                    let log_likelihoods = bernoulli_likelihood(read, &cluster_centers, log_prior);
+                    let read_likelihood = log_sum_exp(&log_likelihoods);
+                    total_likelihood += read_likelihood;
+                }
+                println!("{}\t{}", total_likelihood, reads);
+            }
+            assert_eq!(4,5);
         }
         total_log_loss = log_likelihood;
         log_loss_change = log_likelihood - last_log_loss;

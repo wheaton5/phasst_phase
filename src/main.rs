@@ -159,7 +159,7 @@ fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>,
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
 
         // TODODODODODODODODODODo
-        if *contig != 2 { continue; } // TODO remove
+        if *contig != 3 { continue; } // TODO remove
 
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) { continue; } // we see both ref and alt in assembly, skip

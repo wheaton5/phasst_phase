@@ -159,7 +159,7 @@ fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>,
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
 
         // TODODODODODODODODODODo
-        if *contig != 3 { continue; } // TODO remove
+        if *contig != 2 { continue; } // TODO remove
 
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) { continue; } // we see both ref and alt in assembly, skip
@@ -445,6 +445,10 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
             variant_hic_reads[*locus].push(hic.clone());
         }
     }
+    let mut locus_filter: Vec<bool> = Vec::new();
+    for _ in 0..cluster_centers.clusters[0].center.len() {
+        locus_filter.push(true);
+    }
     
     for cluster in 0..params.ploidy {
         sums.push(Vec::new());
@@ -480,7 +484,7 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
         reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);
         for (readdex, hic_read) in hic_links.iter().enumerate() {
             
-            let log_likelihoods = bernoulli_likelihood(hic_read, &cluster_centers, log_prior);
+            let log_likelihoods = bernoulli_likelihood(hic_read, &cluster_centers, log_prior, &locus_filter);
             let read_likelihood = log_sum_exp(&log_likelihoods);
             hic_likelihoods.push(read_likelihood);
             //if iterations > 140 && read_likelihood < -1.0 { continue; } // TODO DEBUG NOT SURE
@@ -493,19 +497,21 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
             final_log_probabilities[readdex] = log_likelihoods;
         }
 
-        if iterations == 140 {
+        if iterations == 120 {
             
             for loci in 0..cluster_centers.clusters[0].center.len() {
                 let mut total_likelihood = 0.0;
                 let reads = variant_hic_reads[loci].len() as f32;
                 for read in variant_hic_reads[loci].iter() {
-                    let log_likelihoods = bernoulli_likelihood(read, &cluster_centers, log_prior);
+                    let log_likelihoods = bernoulli_likelihood(read, &cluster_centers, log_prior, &locus_filter);
                     let read_likelihood = log_sum_exp(&log_likelihoods);
                     total_likelihood += read_likelihood;
                 }
-                println!("{}\t{}", total_likelihood, reads);
+                //println!("{}\t{}", total_likelihood, reads);
+                if total_likelihood/ reads < 0.75 {
+                    locus_filter[loci] = false;
+                }
             }
-            assert_eq!(4,5);
         }
         total_log_loss = log_likelihood;
         log_loss_change = log_likelihood - last_log_loss;
@@ -551,12 +557,14 @@ fn normalize_in_log(log_probs: &Vec<f32>) -> Vec<f32> { // takes in a log_probab
     normalized_probabilities
 }
 
-fn bernoulli_likelihood(hic_read: &HIC, cluster_centers: &ClusterCenters, log_prior: f32) -> Vec<f32> {
+fn bernoulli_likelihood(hic_read: &HIC, cluster_centers: &ClusterCenters, log_prior: f32, locus_filter: &Vec<bool>) -> Vec<f32> {
     let mut log_probabilities: Vec<f32> = Vec::new();
     for (cluster, center) in cluster_centers.clusters.iter().enumerate() {
         log_probabilities.push(log_prior);
         for (locus_index, locus) in hic_read.loci.iter().enumerate() {
-            log_probabilities[cluster] += ln_bernoulli(hic_read.alleles[locus_index], center.center[*locus]);
+            if locus_filter[*locus] {
+                log_probabilities[cluster] += ln_bernoulli(hic_read.alleles[locus_index], center.center[*locus]);
+            }
         }
     }
     

@@ -373,7 +373,7 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<READ>>, long_
                 eprintln!("solve with LONG LINKS ONLY");
                 let (_log_loss, cluster_centers, _hic_probabilities, _) =  // first solve with long links only
                     expectation_maximization(loci.len(), cluster_centers, &long_contig_hic_links, &empty_vec, params, iteration, thread_data.thread_num);
-                eprintln!("ALL HIC LINKS");
+                eprintln!("ALL READS: {} hic and {} hifi", contig_hic_links.len(), contig_hifi_mols.len());
                 let (log_loss, cluster_centers, hic_probabilities, hic_likelihoods) = 
                     expectation_maximization(loci.len(), cluster_centers, &contig_hic_links, &contig_hifi_mols, params, iteration, thread_data.thread_num);
                 

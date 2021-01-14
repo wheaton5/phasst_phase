@@ -210,7 +210,10 @@ fn gather_hifi_mols(hifi: &HifiMols, variant_contig_order: &ContigLoci) -> HashM
     for (contig, _) in variant_contig_order.loci.iter() {
         to_return.insert(*contig, Vec::new());
     }
+
+    let mut total = 0;
     for mol in hifi.get_hifi_molecules() {
+        total += 1;
         let mut the_contig: Option<i32> = None;
         let mut loci: Vec<usize> = Vec::new();
         let mut alleles: Vec<Allele> = Vec::new();
@@ -232,9 +235,11 @@ fn gather_hifi_mols(hifi: &HifiMols, variant_contig_order: &ContigLoci) -> HashM
         }
         if loci.len() > 1 {
             let contig = to_return.entry(the_contig.unwrap()).or_insert(Vec::new());
-            contig.push( READ {alleles: alleles, loci: loci, long_weighting: 1.0 } );
+            contig.push( READ { alleles: alleles, loci: loci, long_weighting: 1.0 } );
         }
     }
+
+    eprintln!("hifi reads {}", total);
     to_return
 }
 

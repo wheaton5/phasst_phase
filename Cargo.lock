@@ -346,7 +346,7 @@ dependencies = [
 [[package]]
 name = "phasst_lib"
 version = "0.1.0"
-source = "git+https://github.com/wheaton5/phasst_lib.git?branch=main#c92eaefa699e29a23d25a9974dba799ef21ff284"
+source = "git+https://github.com/wheaton5/phasst_lib.git?branch=main#8dee5ee4c13a5ade30514e2fff3a8d589573040b"
 dependencies = [
  "byteorder",
  "disjoint-set",

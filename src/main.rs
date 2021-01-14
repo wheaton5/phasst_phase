@@ -7,7 +7,7 @@ extern crate phasst_lib;
 extern crate rand;
 extern crate disjoint_set;
 
-use phasst_lib::{Kmers, load_assembly_kmers, Assembly, HicMols, load_hic};
+use phasst_lib::{Kmers, load_assembly_kmers, Assembly, HicMols, HifiMols, load_hic, load_hifi};
 use rayon::prelude::*;
 
 use rand::Rng;
@@ -44,7 +44,7 @@ enum Allele {
 
 
 #[derive(Clone)]
-struct HIC {
+struct READ {
     loci: Vec<usize>,
     alleles: Vec<Allele>,
     long_weighting: f32,
@@ -61,6 +61,8 @@ fn main() {
     //let (_variants, molecules) = load_molecule_kmers(&params.txg_mols, &params.hic_mols, &params.longread_mols, &kmers);
     eprintln!("loading hic kmers");
     let hic_mols = load_hic(&params.hic_mols, &kmers);
+    eprintln!("loading long reads");
+    let hifi = load_hifi(&params.longread_mols, &kmers);
     eprintln!("loading assembly kmers");
     let assembly = load_assembly_kmers(&params.assembly_kmers, &kmers);
 
@@ -70,9 +72,10 @@ fn main() {
     let variant_contig_order: ContigLoci = good_assembly_loci(&assembly, &allele_fractions, &bad_alleles);
     eprintln!("finding good hic reads");
     let (hic_links, long_hic_links) = gather_hic_links(&hic_mols, &variant_contig_order);
+    let hifi_mols = gather_hifi_mols(&hifi, &variant_contig_order);
     eprintln!("phasing");
-    let mut connected_components = get_connected_components(&hic_links, &variant_contig_order, params.min_hic_links);
-    phasst_phase_main(&params, &hic_links, &long_hic_links, &variant_contig_order);
+    //MAYBE LATER let mut connected_components = get_connected_components(&hic_links, &variant_contig_order, params.min_hic_links);
+    phasst_phase_main(&params, &hic_links, &long_hic_links, &hifi_mols, &variant_contig_order);
 }
 
 fn allele(kmer: i32) -> Allele {
@@ -97,7 +100,7 @@ fn get_bad_alleles(hic_mols: &HicMols) -> HashSet<i32> {
     bad
 }
 
-fn get_connected_components(hic_links: &HashMap<i32, Vec<HIC>>, variant_contig_order: &ContigLoci, min_links: u32) -> 
+fn get_connected_components(hic_links: &HashMap<i32, Vec<READ>>, variant_contig_order: &ContigLoci, min_links: u32) -> 
     HashMap<i32, DisjointSet<usize>> {
     let mut components: HashMap<i32, DisjointSet<usize>> = HashMap::new();
     let mut edges: HashMap<i32, HashMap<(usize, usize), u32>> = HashMap::new();
@@ -201,10 +204,44 @@ fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>,
     }
 }
 
+
+fn gather_hifi_mols(hifi: &HifiMols, variant_contig_order: &ContigLoci) -> HashMap<i32, Vec<READ>> {
+    let mut to_return: HashMap<i32, Vec<READ>> = HashMap::new();
+    for (contig, _) in variant_contig_order.loci.iter() {
+        to_return.insert(*contig, Vec::new());
+    }
+    for mol in hifi.get_hifi_molecules() {
+        let mut the_contig: Option<i32> = None;
+        let mut loci: Vec<usize> = Vec::new();
+        let mut alleles: Vec<Allele> = Vec::new();
+        for var in mol { 
+             if let Some(locus) = variant_contig_order.kmers.get(&var.abs()) {
+                if let Some(chrom) = the_contig {
+                    if locus.contig_id == chrom {
+                        loci.push(locus.index);
+                        alleles.push(allele(*var));
+                    } else { 
+                        //do something here
+                    }
+                } else {
+                    loci.push(locus.index);
+                    alleles.push(allele(*var));
+                    the_contig = Some(locus.contig_id); 
+                }
+            }
+        }
+        if loci.len() > 1 {
+            let contig = to_return.entry(the_contig.unwrap()).or_insert(Vec::new());
+            contig.push( READ {alleles: alleles, loci: loci, long_weighting: 1.0 } );
+        }
+    }
+    to_return
+}
+
 fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) -> 
-        (HashMap<i32, Vec<HIC>>, HashMap<i32, Vec<HIC>>) { // returns map from contig id to list of HIC data structures
-    let mut hic_mols: HashMap<i32, Vec<HIC>> = HashMap::new();
-    let mut long_hic_mols: HashMap<i32, Vec<HIC>> = HashMap::new();
+        (HashMap<i32, Vec<READ>>, HashMap<i32, Vec<READ>>) { // returns map from contig id to list of HIC data structures
+    let mut hic_mols: HashMap<i32, Vec<READ>> = HashMap::new();
+    let mut long_hic_mols: HashMap<i32, Vec<READ>> = HashMap::new();
     let mut total = 0;
     let mut total_long_links = 0;
     for (contig, _) in variant_contig_order.loci.iter() {
@@ -255,10 +292,10 @@ fn gather_hic_links(hic_molecules: &HicMols, variant_contig_order: &ContigLoci) 
                     long_loci.push(loci[index]);
                     long_alleles.push(alleles[index]);
                 }
-                long_contig_mols.push( HIC{loci: long_loci, alleles: long_alleles, long_weighting: LONG_RANGE_HIC_WEIGHTING} );
+                long_contig_mols.push( READ{loci: long_loci, alleles: long_alleles, long_weighting: LONG_RANGE_HIC_WEIGHTING} );
                 total_long_links += 1;
             }
-            contig_mols.push( HIC{loci: loci, alleles: alleles, long_weighting: long_range} ); 
+            contig_mols.push( READ{loci: loci, alleles: alleles, long_weighting: long_range} ); 
             total += 1;
         }
     }
@@ -298,8 +335,8 @@ impl ThreadData {
     }
 }
 
-fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_hic_links: &HashMap<i32, Vec<HIC>>, 
-        contig_loci: &ContigLoci) {
+fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<READ>>, long_hic_links: &HashMap<i32, Vec<READ>>, 
+        hifi_mols: &HashMap<i32, Vec<READ>>, contig_loci: &ContigLoci) {
     let seed = [params.seed; 32];
     let mut rng: StdRng = SeedableRng::from_seed(seed);
     let mut threads: Vec<ThreadData> = Vec::new();
@@ -323,6 +360,7 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
             }
         } 
     }
+    let empty_vec: Vec<READ> = Vec::new();
     threads.par_iter_mut().for_each(|thread_data| {
         let mut best_centers: HashMap<i32, ClusterCenters> = HashMap::new();
         for iteration in 0..thread_data.solves_per_thread {
@@ -330,13 +368,14 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
                 
                 let cluster_centers: ClusterCenters = init_cluster_centers(loci.len(), params, &mut thread_data.rng);
                 let contig_hic_links = hic_links.get(contig).unwrap();
+                let contig_hifi_mols = hifi_mols.get(contig).unwrap();
                 let long_contig_hic_links = long_hic_links.get(contig).unwrap();
                 eprintln!("solve with LONG LINKS ONLY");
                 let (_log_loss, cluster_centers, _hic_probabilities, _) =  // first solve with long links only
-                    expectation_maximization(loci.len(), cluster_centers, &long_contig_hic_links, params, iteration, thread_data.thread_num);
+                    expectation_maximization(loci.len(), cluster_centers, &long_contig_hic_links, &empty_vec, params, iteration, thread_data.thread_num);
                 eprintln!("ALL HIC LINKS");
                 let (log_loss, cluster_centers, hic_probabilities, hic_likelihoods) = 
-                    expectation_maximization(loci.len(), cluster_centers, &contig_hic_links, params, iteration, thread_data.thread_num);
+                    expectation_maximization(loci.len(), cluster_centers, &contig_hic_links, &contig_hifi_mols, params, iteration, thread_data.thread_num);
                 
                 let best_log_prob_so_far = thread_data.best_total_log_probability.entry(*contig).or_insert(f32::NEG_INFINITY);
                 if &log_loss > best_log_prob_so_far {
@@ -427,7 +466,7 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<HIC>>, long_h
 
 }
 
-fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hic_links: &Vec<HIC>, 
+fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hic_links: &Vec<READ>, hifi: &Vec<READ>,
         params: &Params, epoch: usize, thread_num: usize) -> (f32, ClusterCenters,
         Vec<Vec<f32>>, Vec<f32>) { // this is a vector of the hic molecules probabilities to each cluster
     if hic_links.len() == 0 {
@@ -436,18 +475,15 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
     let mut sums: Vec<Vec<f32>> = Vec::new();
     let mut denoms: Vec<Vec<f32>> = Vec::new();
 
-    let mut variant_hic_reads: Vec<Vec<HIC>> = Vec::new();
+    let mut variant_hic_reads: Vec<Vec<READ>> = Vec::new();
     for _ in 0..cluster_centers.clusters[0].center.len() {
         variant_hic_reads.push(Vec::new());
     }
+
     for hic in hic_links {
         for locus in hic.loci.iter() {
             variant_hic_reads[*locus].push(hic.clone());
         }
-    }
-    let mut locus_filter: Vec<bool> = Vec::new();
-    for _ in 0..cluster_centers.clusters[0].center.len() {
-        locus_filter.push(true);
     }
     
     for cluster in 0..params.ploidy {
@@ -466,7 +502,7 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
     let mut total_log_loss = f32::NEG_INFINITY;
 
     let mut final_log_probabilities: Vec<Vec<f32>> = Vec::new();
-    for _read in 0..hic_links.len() {
+    for _read in hic_links.iter().chain(hifi.iter()) {
         final_log_probabilities.push(Vec::new());
     }
 
@@ -482,9 +518,9 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
         hic_likelihoods.clear();
         let mut log_likelihood = 0.0;
         reset_sums_denoms(loci, &mut sums, &mut denoms, params.ploidy);
-        for (readdex, hic_read) in hic_links.iter().enumerate() {
+        for (readdex, read) in hic_links.iter().chain(hifi.iter()).enumerate() {
             
-            let log_likelihoods = bernoulli_likelihood(hic_read, &cluster_centers, log_prior, &locus_filter);
+            let log_likelihoods = bernoulli_likelihood(read, &cluster_centers, log_prior);
             let read_likelihood = log_sum_exp(&log_likelihoods);
             hic_likelihoods.push(read_likelihood);
             //if iterations > 140 && read_likelihood < -1.0 { continue; } // TODO DEBUG NOT SURE
@@ -492,11 +528,12 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
             let probabilities = normalize_in_log(&log_likelihoods);
             
             
-            update_sums_denoms(&mut sums, &mut denoms, hic_read, &probabilities); 
+            update_sums_denoms(&mut sums, &mut denoms, read, &probabilities); 
             hic_probabilities.push(probabilities);
             final_log_probabilities[readdex] = log_likelihoods;
         }
 
+        /*
         if iterations == 120 {
             
             for loci in 0..cluster_centers.clusters[0].center.len() {
@@ -513,6 +550,7 @@ fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hi
                 }
             }
         }
+        */
         total_log_loss = log_likelihood;
         log_loss_change = log_likelihood - last_log_loss;
         last_log_loss = log_likelihood;
@@ -536,7 +574,7 @@ fn update_cluster_centers(loci: usize, sums: &Vec<Vec<f32>>, denoms: &Vec<Vec<f3
     }
 }
 
-fn update_sums_denoms(sums: &mut Vec<Vec<f32>>, denoms: &mut Vec<Vec<f32>>, hic_read: &HIC, probabilities: &Vec<f32>) {
+fn update_sums_denoms(sums: &mut Vec<Vec<f32>>, denoms: &mut Vec<Vec<f32>>, hic_read: &READ, probabilities: &Vec<f32>) {
     for locus in 0..hic_read.loci.len() {
         for (cluster, probability) in probabilities.iter().enumerate() {
             match hic_read.alleles[locus] {
@@ -557,14 +595,12 @@ fn normalize_in_log(log_probs: &Vec<f32>) -> Vec<f32> { // takes in a log_probab
     normalized_probabilities
 }
 
-fn bernoulli_likelihood(hic_read: &HIC, cluster_centers: &ClusterCenters, log_prior: f32, locus_filter: &Vec<bool>) -> Vec<f32> {
+fn bernoulli_likelihood(read: &READ, cluster_centers: &ClusterCenters, log_prior: f32) -> Vec<f32> {
     let mut log_probabilities: Vec<f32> = Vec::new();
     for (cluster, center) in cluster_centers.clusters.iter().enumerate() {
         log_probabilities.push(log_prior);
-        for (locus_index, locus) in hic_read.loci.iter().enumerate() {
-            if locus_filter[*locus] {
-                log_probabilities[cluster] += ln_bernoulli(hic_read.alleles[locus_index], center.center[*locus]);
-            }
+        for (locus_index, locus) in read.loci.iter().enumerate() {
+            log_probabilities[cluster] += ln_bernoulli(read.alleles[locus_index], center.center[*locus]);
         }
     }
     

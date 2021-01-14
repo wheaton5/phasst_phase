@@ -702,7 +702,7 @@ fn load_params() -> Params {
         hic_mols = Some(tmp);
     }
 
-    let long_tmp: Option<Vec<&str>> =  match params.values_of("longread_mols") {
+    let long_tmp: Option<Vec<&str>> =  match params.values_of("long_read_mols") {
         Some(x) => Some(x.collect()),
         None => None,
     };

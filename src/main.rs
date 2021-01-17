@@ -14,6 +14,9 @@ use rand::Rng;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
+use std::fs::File;
+use std::io::{BufWriter, Write};
+
 use hashbrown::{HashMap, HashSet};
 use disjoint_set::DisjointSet;
 
@@ -37,6 +40,8 @@ struct ContigLocus {
     index: usize,
     position: usize,
     allele: Allele,
+    reference: i32,
+    alternate: i32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -68,7 +73,7 @@ fn main() {
     eprintln!("loading linked reads");
     let txg_barcodes = load_linked_read_barcodes(&params.txg_mols, &kmers);
     eprintln!("loading assembly kmers");
-    let assembly = load_assembly_kmers(&params.assembly_kmers, &kmers);
+    let assembly = load_assembly_kmers(&params.assembly_kmers, &params.assembly_fasta, &kmers);
 
     eprintln!("finding good loci");
     let allele_fractions = get_allele_fractions(&hic_mols); // MAYBE ADD LINKED Molecule AND LONG Molecule to this?
@@ -80,7 +85,7 @@ fn main() {
     let txg_mols = gather_txg_mols(&txg_barcodes, &variant_contig_order);
     eprintln!("phasing");
     //MAYBE LATER let mut connected_components = get_connected_components(&hic_links, &variant_contig_order, params.min_hic_links);
-    phasst_phase_main(&params, &hic_links, &long_hic_links, &hifi_mols, &txg_mols, &variant_contig_order);
+    let phasing = phasst_phase_main(&params, &hic_links, &long_hic_links, &hifi_mols, &txg_mols, &variant_contig_order, &assembly, &kmers);
 }
 
 fn allele(kmer: i32) -> Allele {
@@ -189,11 +194,25 @@ fn good_assembly_loci(assembly: &Assembly, allele_fractions: &HashMap<i32, f32>,
         poses.sort();
         let contig_loci = loci.entry(*contig).or_insert(Vec::new());
         for (index, (position, kmer, contig)) in poses.iter().enumerate() {
-            let locus = ContigLocus{
+            let reference;
+            let alternate;
+            match allele(*kmer) {
+                Allele::Ref => {
+                    reference = kmer.abs();
+                    alternate = reference - 1;
+                },
+                Allele::Alt => {
+                    alternate = kmer.abs();
+                    reference = alternate + 1;
+                }
+            } 
+            let locus = ContigLocus {
                 contig_id: *contig,
                 index: index,
                 position: *position,
                 allele: allele(*kmer),
+                reference: reference,
+                alternate: alternate,
             };
             variant_contig_order.insert(*kmer, locus);
             variant_contig_order.insert(Kmers::pair(*kmer), locus);
@@ -387,8 +406,10 @@ impl ThreadData {
     }
 }
 
+
 fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<Molecule>>, long_hic_links: &HashMap<i32, Vec<Molecule>>, 
-        hifi_mols: &HashMap<i32, Vec<Molecule>>, linked_read_mols: &HashMap<i32, Vec<Molecule>>, contig_loci: &ContigLoci) {
+        hifi_mols: &HashMap<i32, Vec<Molecule>>, linked_read_mols: &HashMap<i32, Vec<Molecule>>, contig_loci: &ContigLoci,
+        assembly: &Assembly, kmers: &Kmers) {
     let seed = [params.seed; 32];
     let mut rng: StdRng = SeedableRng::from_seed(seed);
     let mut threads: Vec<ThreadData> = Vec::new();
@@ -515,8 +536,62 @@ fn phasst_phase_main(params: &Params, hic_links: &HashMap<i32, Vec<Molecule>>, l
                         alt_frac, count, loci[index].allele, phase);
         }
     }
-     
+    let mut output = params.output.to_string();
+    output.push_str("/phasing.vcf");
+    let f = File::create(output).expect("Unable to create file");
+    let mut f = BufWriter::new(f);
+    for (contig, center) in best_centers.iter() {
+        let loci = contig_loci.loci.get(contig).unwrap();
+        let contig_name = &assembly.contig_names[*contig as usize];
 
+        for ldex in 0..center.clusters[0].center.len() {
+            // output is semi-vcf contig\tpos\t.\tREF\tALT\tqual\tfilter\tinfo\tformat\tsample
+            let locus = loci[ldex];
+            let pos = locus.position;
+            let reference;
+            let alternate;
+            let flip;
+            match locus.allele {
+                Allele::Ref => {
+                    reference = kmers.kmers.get(&locus.reference).unwrap().to_string();
+                    alternate = kmers.kmers.get(&locus.alternate).unwrap().to_string();
+                    flip = false;
+                },
+                Allele::Alt => {
+                    reference = kmers.kmers.get(&locus.alternate).unwrap().to_string();
+                    alternate = kmers.kmers.get(&locus.reference).unwrap().to_string();
+                    flip = true;
+                },
+            }
+            
+            let mut genotype: Vec<String> = Vec::new();
+            for cluster in center.clusters.iter() {
+                let value = cluster.center[ldex];
+                if value > 0.99 {
+                    if !flip {
+                        genotype.push("1".to_string());
+                    } else {
+                        genotype.push("0".to_string())
+                    }
+                } else if value < 0.01 {
+                    if !flip {
+                        genotype.push("0".to_string())
+                    } else {
+                        genotype.push("1".to_string());
+                    }
+                } else {
+                    genotype.push(".".to_string());
+                }
+            }
+            let genotype = vec![genotype.join("|"), "60".to_string()].join(":");
+            let mut line_vec: Vec<String> = vec![contig_name.to_string(), pos.to_string(),
+                ".".to_string(), reference, alternate, ".".to_string(), ".".to_string(), ".".to_string(), 
+                "GT:PQ".to_string(), genotype];
+            let mut line = line_vec.join("\t");
+            line.push_str("\n");
+            f.write_all(line.as_bytes()).expect("Unable to write data");
+        }
+    }
 }
 
 fn expectation_maximization(loci: usize, mut cluster_centers: ClusterCenters, hic_links: &Vec<Molecule>, hifi: &Vec<Molecule>,

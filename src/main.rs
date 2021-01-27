@@ -764,7 +764,7 @@ fn expectation_maximization(
     let mut hic_likelihoods: Vec<f32> = Vec::new();
 
     //while log_loss_change > log_loss_change_limit && iterations < 100 {
-    while iterations < 150 {
+    while iterations < 350 {
         // TODO figure out something better here
         hic_probabilities.clear(); // TODO REMOVE DEBUG
         hic_likelihoods.clear();

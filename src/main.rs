@@ -191,9 +191,9 @@ fn good_assembly_loci(
     let mut contig_positions: HashMap<i32, Vec<(usize, i32, i32)>> = HashMap::new();
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
         // TODODODODODODODODODODo
-        if *contig != 2 {
-            continue;
-        } // TODO remove
+        //if *contig != 2 {
+        //    continue;
+        //:} // TODO remove
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) {
             continue;

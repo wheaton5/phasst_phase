@@ -196,21 +196,27 @@ fn good_assembly_loci(
         //:} // TODO remove
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) {
+            eprintln!("excluded due to pair present {} {}",contig, position);
             continue;
         } // we see both ref and alt in assembly, skip
         if let Some(fraction) = allele_fractions.get(&kmer.abs()) {
             if *fraction < MIN_ALLELE_FRACTION_HIC {
+                eprintln!("excluded due to allele fraction {} {}",contig, position);
                 continue;
             }
             if bad_alleles.contains(kmer) {
+                eprintln!("excluded due to bad allele {} {}",contig, position);
                 continue;
             }
         } else {
+            eprintln!("excluded due to no fraction {} {}",contig, position);
             continue;
         }
 
         if *num > 1 {
+            eprintln!("excluded due to duplicates {} {}",contig, position);
             continue;
+
         } // we see this kmer multiple times in the assembly, skip
         let positions = contig_positions.entry(*contig).or_insert(Vec::new());
         positions.push((*position, *kmer, *contig));

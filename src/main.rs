@@ -609,11 +609,11 @@ fn phasst_phase_main(
     println!("contig\tposition\thap1\thap2\treads\tassembly_allele\tphase");
     for contig in 1..(best_centers.len() + 2) {
         if !contig_loci.loci.contains_key(&(contig as i32)) {
-            eprintln!("contig loci doesnt contain contig {}", contig);
+            eprintln!("contig loci doesnt contain contig {}, {}", contig, assembly.contig_names[contig]);
             continue;
         }
         if !best_centers.contains_key(&(contig as i32)) {
-            eprintln!("best centers doesnt contain contig {}", contig);
+            eprintln!("best centers doesnt contain contig {}, {}", contig, assembly.contig_names[contig]);
             continue;
         }
         let cluster_centers = best_centers.get(&(contig as i32)).unwrap();

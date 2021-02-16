@@ -944,9 +944,19 @@ fn phasst_phase_main(
                 }
             }
             if genotype[0] == "0" && genotype[1] == "1" {
-                contig_phasing.push(Some(true));
+                if !flip{
+                    contig_phasing.push(Some(true));
+                } else {
+                    contig_phasing.push(Some(false));
+                }
+                
             } else if genotype[0] == "1" && genotype[1] == "0" {
-                contig_phasing.push(Some(false));
+                if !flip {
+                    contig_phasing.push(Some(false));
+                } else {
+                    contig_phasing.push(Some(true));
+                }
+                
             } else {
                 contig_phasing.push(None);
             }

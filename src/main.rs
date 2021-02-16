@@ -153,7 +153,7 @@ txg_mols: &HashMap<i32, Vec<Molecule>>, params: &Params, contig_loci: &ContigLoc
                 for txg_index in txg_indexes { check_add(&txg[*txg_index], *txg_index, &mut current_txg_mol_set, left, right); }
             }
         }
-        for (mid, _locus) in loci.iter().enumerate() {
+        for (mid, locus) in loci.iter().enumerate() {
             let left = mid - params.break_window;
             let right = mid + params.break_window;
             if mid > params.break_window {
@@ -226,7 +226,7 @@ txg_mols: &HashMap<i32, Vec<Molecule>>, params: &Params, contig_loci: &ContigLoc
                     counts[bestdex] += 1;
                 }
             }
-            eprintln!("contig {}, mid {}, break_counts {:?}", contig, mid, counts);
+            eprintln!("contig {}, mid {} position {}, break_counts {:?}", contig, locus.position, mid, counts);
 
 
             /*

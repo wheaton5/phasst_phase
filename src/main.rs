@@ -158,15 +158,13 @@ txg_mols: &HashMap<i32, Vec<Molecule>>, params: &Params, contig_loci: &ContigLoc
             let right = mid + params.break_window;
             if mid > params.break_window {
                 if let Some(hic_indexes) = locus_hic_mols.get(&(left-1)) {
-                    for hic_index in hic_indexes { 
-                        check_remove(&hic[*hic_index], *hic_index, &mut current_hic_mol_set, left, right); 
-                    }
+                    for hic_index in hic_indexes { check_remove(&hic[*hic_index], *hic_index, &mut current_hic_mol_set, left, right); }
                 }
                 if let Some(ccs_indexes) = locus_ccs_mols.get(&(left-1)) {
                     for ccs_index in ccs_indexes { check_remove(&ccs[*ccs_index], *ccs_index, &mut current_ccs_mol_set, left, right); }
                 }
                 if let Some(txg_indexes) = locus_txg_mols.get(&(left-1)) {
-                    for txg_index in txg_indexes { check_remove(&txg[*txg_index], *txg_index, &mut current_txg_mol_set, left, right);  }
+                    for txg_index in txg_indexes { check_remove(&txg[*txg_index], *txg_index, &mut current_txg_mol_set, left, right); }
                 }
             }
             if let Some(hic_indexes) = locus_hic_mols.get(&(right-1)) {
@@ -190,16 +188,20 @@ txg_mols: &HashMap<i32, Vec<Molecule>>, params: &Params, contig_loci: &ContigLoc
                         if locus1 < mid && locus2 >= mid {
                             if let Some(phase_left) = contig_phasing[locus1] {
                                 let mut phase_left = phase_left;
-                                match hicmol.alleles[index1] {
-                                    Allele::Alt => phase_left = !phase_left,
-                                    Allele::Ref => (),
-                                }
+                                
                                 if let Some(phase_right) = contig_phasing[locus2] {
+                                    eprintln!("hic mol {} mid {} locus {} and {} with phasing {} and {} and alleles {:?} and {:?}", 
+                                        hic_moldex, mid, locus1, locus2, phase_left, phase_right, hicmol.alleles[index1], hicmol.alleles[index2]);
                                     let mut phase_right = phase_right;
+                                    match hicmol.alleles[index1] {
+                                        Allele::Alt => phase_left = !phase_left,
+                                        Allele::Ref => (),
+                                    }
                                     match hicmol.alleles[index2] {
                                         Allele::Alt => phase_right = !phase_right,
                                         Allele::Ref => (),
                                     }
+                                    
                                     if phase_left && phase_right { counts[0] += 1; } 
                                     else if !phase_left && !phase_right { counts[1] += 1; }
                                     else if phase_left && !phase_right { counts[2] += 1; }

@@ -69,7 +69,7 @@ fn main() {
     eprintln!("loading hic kmers");
     let hic_mols = load_hic(&params.hic_mols, &kmers);
     eprintln!("loading long reads");
-    let hifi = load_hifi(&params.longread_mols, &kmers);
+    let ccs = load_hifi(&params.longread_mols, &kmers);
     eprintln!("loading linked reads");
     let txg_barcodes = load_linked_read_barcodes(&params.txg_mols, &kmers);
     eprintln!("loading assembly kmers");
@@ -82,7 +82,7 @@ fn main() {
         good_assembly_loci(&assembly, &allele_fractions, &bad_alleles);
     eprintln!("finding good hic reads");
     let (hic_links, long_hic_links) = gather_hic_links(&hic_mols, &variant_contig_order);
-    let hifi_mols = gather_hifi_mols(&hifi, &variant_contig_order);
+    let ccs_mols = gather_hifi_mols(&ccs, &variant_contig_order);
     let txg_mols = gather_txg_mols(&txg_barcodes, &variant_contig_order);
     eprintln!("phasing");
     //MAYBE LATER let mut connected_components = get_connected_components(&hic_links, &variant_contig_order, params.min_hic_links);
@@ -90,13 +90,255 @@ fn main() {
         &params,
         &hic_links,
         &long_hic_links,
-        &hifi_mols,
+        &ccs_mols,
         &txg_mols,
         &variant_contig_order,
         &assembly,
         &kmers,
     );
+    assess_breakpoints(&hic_links, &ccs_mols, &txg_mols, &params, &variant_contig_order, &phasing);
 }
+
+fn assess_breakpoints(hic_links: &HashMap<i32, Vec<Molecule>>, 
+ccs_mols: &HashMap<i32, Vec<Molecule>>, 
+txg_mols: &HashMap<i32, Vec<Molecule>>, params: &Params, contig_loci: &ContigLoci, phasing: &Phasing) {
+    let mut counts: Vec<[u16; 4]> = Vec::new();
+    let mut coverages: Vec<f32> = Vec::new();
+    // [cis1, cis2, trans1, trans2]
+
+    // to build incrementally we would need a map from locus to molecules 
+
+    for (contig, hic)in hic_links.iter() {
+        let ccs = ccs_mols.get(contig).expect("cant find contig for hifi mols");
+        let txg = txg_mols.get(contig).expect("cant find contig for txg mols");
+        let contig_phasing = phasing.phasing.get(contig).expect("contig not in phasing?");
+
+        let mut locus_hic_mols: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut locus_ccs_mols: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut locus_txg_mols: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (read_index, hic_read) in hic.iter().enumerate() {
+            for locus in hic_read.loci.iter() {
+                let blah = locus_hic_mols.entry(*locus).or_insert(Vec::new());
+                blah.push(read_index);
+            }
+        }
+        for (read_index, ccs_read) in ccs.iter().enumerate() {
+            for locus in ccs_read.loci.iter() {
+                let blah = locus_ccs_mols.entry(*locus).or_insert(Vec::new());
+                blah.push(read_index);
+            }
+        }
+        for (read_index, txg_read) in txg.iter().enumerate() {
+            for locus in txg_read.loci.iter() {
+                let blah = locus_txg_mols.entry(*locus).or_insert(Vec::new());
+                blah.push(read_index);
+            }
+        }
+        let loci = contig_loci.loci.get(contig).expect("cant find contig in contig loci");
+        
+
+        let mut current_hic_mol_set: HashSet<usize> = HashSet::new();
+        let mut current_txg_mol_set: HashSet<usize> = HashSet::new();
+        let mut current_ccs_mol_set: HashSet<usize> = HashSet::new();
+        for index in 0..params.break_window {
+            let left = 0;
+            let right = params.break_window;
+            if let Some(hic_indexes) = locus_hic_mols.get(&index) {
+                for hic_index in hic_indexes { check_add(&hic[*hic_index], *hic_index, &mut current_hic_mol_set, left, right); }
+            }
+            if let Some(ccs_indexes) = locus_ccs_mols.get(&index) {
+                for ccs_index in ccs_indexes { check_add(&ccs[*ccs_index], *ccs_index, &mut current_ccs_mol_set, left, right); }
+            }
+            if let Some(txg_indexes) = locus_txg_mols.get(&index) {
+                for txg_index in txg_indexes { check_add(&txg[*txg_index], *txg_index, &mut current_txg_mol_set, left, right); }
+            }
+        }
+        for (mid, _locus) in loci.iter().enumerate() {
+            let left = mid - params.break_window;
+            let right = mid + params.break_window;
+            if mid > params.break_window {
+                if let Some(hic_indexes) = locus_hic_mols.get(&(left-1)) {
+                    for hic_index in hic_indexes { 
+                        check_remove(&hic[*hic_index], *hic_index, &mut current_hic_mol_set, left, right); 
+                    }
+                }
+                if let Some(ccs_indexes) = locus_ccs_mols.get(&(left-1)) {
+                    for ccs_index in ccs_indexes { check_remove(&ccs[*ccs_index], *ccs_index, &mut current_ccs_mol_set, left, right); }
+                }
+                if let Some(txg_indexes) = locus_txg_mols.get(&(left-1)) {
+                    for txg_index in txg_indexes { check_remove(&txg[*txg_index], *txg_index, &mut current_txg_mol_set, left, right);  }
+                }
+            }
+            if let Some(hic_indexes) = locus_hic_mols.get(&(right-1)) {
+                for hic_index in hic_indexes { check_add(&hic[*hic_index], *hic_index, &mut current_hic_mol_set, left, right); }
+            }
+            if let Some(ccs_indexes) = locus_ccs_mols.get(&(right-1)) {
+                for ccs_index in ccs_indexes { check_add(&ccs[*ccs_index], *ccs_index, &mut current_ccs_mol_set, left, right); }
+            }
+            if let Some(txg_indexes) = locus_txg_mols.get(&(right-1)) {
+                for txg_index in txg_indexes { check_add(&txg[*txg_index], *txg_index, &mut current_txg_mol_set, left, right); }
+            }
+
+            let mut counts: [u16;4] = [0;4];
+
+            for hic_moldex in current_hic_mol_set.iter() {
+                let hicmol = &hic[*hic_moldex];
+                for index1 in 0..hicmol.loci.len() {
+                    for index2 in (index1+1)..hicmol.loci.len() {
+                        let locus1 = hicmol.loci[index1];
+                        let locus2 = hicmol.loci[index2];
+                        if locus1 < mid && locus2 >= mid {
+                            if let Some(phase_left) = contig_phasing[locus1] {
+                                let mut phase_left = phase_left;
+                                match hicmol.alleles[index1] {
+                                    Allele::Alt => phase_left = !phase_left,
+                                    Allele::Ref => (),
+                                }
+                                if let Some(phase_right) = contig_phasing[locus2] {
+                                    let mut phase_right = phase_right;
+                                    match hicmol.alleles[index2] {
+                                        Allele::Alt => phase_right = !phase_right,
+                                        Allele::Ref => (),
+                                    }
+                                    if phase_left && phase_right { counts[0] += 1; } 
+                                    else if !phase_left && !phase_right { counts[1] += 1; }
+                                    else if phase_left && !phase_right { counts[2] += 1; }
+                                    else if !phase_left && phase_right { counts[3] += 1; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            eprintln!("contig {}, mid {}, break_counts {:?}", contig, mid, counts);
+
+
+            /*
+            if index >= params.break_window {
+                if let Some(hic_indexes) = locus_hic_mols.get(&left) {
+                    subtract_counts(&mut base_counts, hic_indexes, hic, contig_phasing, left, index, right);
+                }
+                if let Some(hifi_indexes) = locus_hifi_mols.get(&left) {
+                    subtract_counts(&mut base_counts, hifi_indexes, hifi, contig_phasing, left, index, right);
+                }
+                if let Some(txg_indexes) = locus_txg_mols.get(&left) {
+                    subtract_counts(&mut base_counts, txg_indexes, hic, contig_phasing, left, index, right);
+                }
+            } else { left = 0; }
+            if index + params.break_window < loci.len() {
+                if let Some(hic_indexes) = locus_hic_mols.get(&right) {
+                    add_counts(&mut base_counts, hic_indexes, hic, contig_phasing, left, index, right);
+                }
+                if let Some(hifi_indexes) = locus_hifi_mols.get(&right) {
+                    add_counts(&mut base_counts, hifi_indexes, hifi, contig_phasing, left, index, right);
+                }
+                if let Some(txg_indexes) = locus_txg_mols.get(&right) {
+                    add_counts(&mut base_counts, txg_indexes, hic, contig_phasing, left, index, right);
+                }
+            }
+            */
+        }
+    }
+}
+
+fn check_remove(mol: &Molecule, mol_index: usize, current_mol_set: &mut HashSet<usize>, left: usize, right: usize) {
+    let mut count = 0;
+    for locus in mol.loci.iter() {
+        if *locus >= left && *locus < right { count += 1; }
+    }
+    if count < 2 { current_mol_set.remove(&mol_index); }
+}
+
+fn check_add(mol: &Molecule, mol_index: usize, current_mol_set: &mut HashSet<usize>, left: usize, right: usize) {
+    let mut count = 0;
+    for locus in mol.loci.iter() {
+        if *locus >= left && *locus < right { count += 1; }
+    }
+    if count < 2 { current_mol_set.insert(mol_index); }
+}
+
+/*
+
+fn subtract_counts(counts: &mut [u16; 4], indices: &Vec<usize>, mols: &Vec<Molecule>, phasing: &Vec<Option<bool>>, left: usize, mid_locus: usize, right: usize) {
+    if let Some(right_phase) = phasing[right] {
+        let mut right_phase = right_phase;
+        for index in indices {
+            let mol = &mols[*index];
+            for (locus, allele) in mol.loci.iter().zip(mol.alleles.iter()) { 
+                if *locus == right {
+                    match allele {
+                        Allele::Alt => right_phase = !right_phase,
+                        Allele::Ref => (),
+                    }
+                }
+            }
+            // got to here changing stuff
+            for (locus, allele) in mol.loci.iter().zip(mol.alleles.iter()) {
+                if *locus >= mid_locus && *locus < right {
+                    // do something
+                    if let Some(left_phase) = phasing[*locus] {
+                        let mut left_phase = left_phase;
+                        match allele {
+                            Allele::Alt => right_phase = !right_phase,
+                            Allele::Ref => (),
+                        }
+                        if left_phase && right_phase {
+                            counts[0] += 1;
+                        } else if !left_phase && !right_phase {
+                            counts[1] += 1;
+                        } else if left_phase && !right_phase {
+                            counts[2] += 1;
+                        } else if !left_phase && right_phase {
+                            counts[3] += 1;
+                        }
+                    }
+                } 
+            }
+        }
+    }
+    if let Some(mid) = phasing[mid_locus-1] {
+        let mol
+    }
+}
+
+fn subtract_counts(counts: &mut [u16; 4], indices: &Vec<usize>, mols: &Vec<Molecule>, phasing: &Vec<Option<bool>>, left: usize, mid_locus: usize, right: usize) {
+    if let Some(left_phase) = phasing[left] {
+        let mut left_phase = left_phase;
+        for index in indices {
+            let mol = &mols[*index];
+            for (locus, allele) in mol.loci.iter().zip(mol.alleles.iter()) { 
+                if *locus == left {
+                    match allele {
+                        Allele::Alt => left_phase = !left_phase,
+                        Allele::Ref => (),
+                    }
+                }
+            }
+            for (locus, allele) in mol.loci.iter().zip(mol.alleles.iter()) {
+                if *locus >= mid_locus && *locus < right {
+                    // do something
+                    if let Some(right_phase) = phasing[*locus] {
+                        let mut right_phase = right_phase;
+                        match allele {
+                            Allele::Alt => right_phase = !right_phase,
+                            Allele::Ref => (),
+                        }
+                        if left_phase && right_phase {
+                            counts[0] -= 1;
+                        } else if !left_phase && !right_phase {
+                            counts[1] -= 1;
+                        } else if left_phase && !right_phase {
+                            counts[2] -= 1;
+                        } else if !left_phase && right_phase {
+                            counts[3] -= 1;
+                        }
+                    }
+                } 
+            }
+        }
+    }
+}
+*/
 
 fn allele(kmer: i32) -> Allele {
     match kmer.abs() % 2 == 0 {
@@ -191,9 +433,9 @@ fn good_assembly_loci(
     let mut contig_positions: HashMap<i32, Vec<(usize, i32, i32)>> = HashMap::new();
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
         // TODODODODODODODODODODo
-        //if *contig != 2 {
-        //    continue;
-        //:} // TODO remove
+        if *contig != 1 {
+            continue;
+        } // TODO remove
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) {
             continue;
@@ -479,6 +721,10 @@ impl ThreadData {
     }
 }
 
+struct Phasing {
+    phasing: HashMap<i32, Vec<Option<bool>>>,
+}
+
 fn phasst_phase_main(
     params: &Params,
     hic_links: &HashMap<i32, Vec<Molecule>>,
@@ -488,7 +734,7 @@ fn phasst_phase_main(
     contig_loci: &ContigLoci,
     assembly: &Assembly,
     kmers: &Kmers,
-) {
+) -> Phasing {
     let seed = [params.seed; 32];
     let mut rng: StdRng = SeedableRng::from_seed(seed);
     let mut threads: Vec<ThreadData> = Vec::new();
@@ -570,7 +816,7 @@ fn phasst_phase_main(
                             }
                         }
                     }
-                }   // END Molecule DEBUG
+                } // END Molecule DEBUG
             } // end contig loop
         } // end cluster center solve iteration
         thread_data.cluster_centers = best_centers;
@@ -602,7 +848,9 @@ fn phasst_phase_main(
         );
     }
     println!("contig\tposition\thap1\thap2\treads\tassembly_allele\tphase");
+
     for contig in 1..(best_centers.len() + 2) {
+        
         if !contig_loci.loci.contains_key(&(contig as i32)) {
             eprintln!("contig loci doesnt contain contig {}, {}", contig, assembly.contig_names[contig]);
             continue;
@@ -647,7 +895,9 @@ fn phasst_phase_main(
     output.push_str("/phasing.vcf");
     let f = File::create(output).expect("Unable to create file");
     let mut f = BufWriter::new(f);
+    let mut phasing: HashMap<i32, Vec<Option<bool>>> = HashMap::new();
     for (contig, center) in best_centers.iter() {
+        let contig_phasing = phasing.entry(*contig as i32).or_insert(Vec::new());
         let loci = contig_loci.loci.get(contig).unwrap();
         let contig_name = &assembly.contig_names[*contig as usize];
 
@@ -672,6 +922,7 @@ fn phasst_phase_main(
             }
 
             let mut genotype: Vec<String> = Vec::new();
+            
             for cluster in center.clusters.iter() {
                 let value = cluster.center[ldex];
                 if value > 0.99 {
@@ -690,6 +941,14 @@ fn phasst_phase_main(
                     genotype.push(".".to_string());
                 }
             }
+            if genotype[0] == "0" && genotype[1] == "1" {
+                contig_phasing.push(Some(true));
+            } else if genotype[0] == "1" && genotype[1] == "0" {
+                contig_phasing.push(Some(false));
+            } else {
+                contig_phasing.push(None);
+            }
+            
             let genotype = vec![genotype.join("|"), "60".to_string()].join(":");
             let mut line_vec: Vec<String> = vec![
                 contig_name.to_string(),
@@ -708,6 +967,7 @@ fn phasst_phase_main(
             f.write_all(line.as_bytes()).expect("Unable to write data");
         }
     }
+    Phasing{ phasing: phasing }
 }
 
 fn expectation_maximization(
@@ -950,6 +1210,7 @@ struct Params {
     ploidy: usize,
     restarts: u32,
     min_hic_links: u32,
+    break_window: usize,
 }
 
 fn load_params() -> Params {
@@ -1015,6 +1276,9 @@ fn load_params() -> Params {
     let min_hic_links = params.value_of("min_hic_links").unwrap_or("4");
     let min_hic_links = min_hic_links.to_string().parse::<u32>().unwrap();
 
+    let break_window = params.value_of("break_window").unwrap_or("100");
+    let break_window = break_window.to_string().parse::<usize>().unwrap();
+
     Params {
         het_kmers: het_kmers.to_string(),
         output: output.to_string(),
@@ -1028,6 +1292,7 @@ fn load_params() -> Params {
         restarts: restarts,
         ploidy: ploidy,
         min_hic_links: min_hic_links,
+        break_window: break_window,
     }
 }
 

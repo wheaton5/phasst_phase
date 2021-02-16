@@ -75,3 +75,8 @@ args:
         required: false
         help: minimum number of hic links to count in same phase block (default 4)
         takes_value: true
+    - break_window:
+        long: break_window
+        required: false
+        help: window of snps used to determine if contig should be split (default 100)
+        takes_value: true

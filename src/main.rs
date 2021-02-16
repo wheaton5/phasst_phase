@@ -1280,6 +1280,7 @@ fn load_params() -> Params {
 
     let break_window = params.value_of("break_window").unwrap_or("100");
     let break_window = break_window.to_string().parse::<usize>().unwrap();
+    eprintln!("break window {}", break_window);
 
     Params {
         het_kmers: het_kmers.to_string(),

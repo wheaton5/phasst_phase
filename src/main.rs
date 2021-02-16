@@ -154,7 +154,7 @@ txg_mols: &HashMap<i32, Vec<Molecule>>, params: &Params, contig_loci: &ContigLoc
             }
         }
         for (mid, locus) in loci.iter().enumerate() {
-            let left = mid - params.break_window;
+            let mut left = mid - params.break_window;
             let right = mid + params.break_window;
             if mid > params.break_window {
                 if let Some(hic_indexes) = locus_hic_mols.get(&(left-1)) {
@@ -166,7 +166,7 @@ txg_mols: &HashMap<i32, Vec<Molecule>>, params: &Params, contig_loci: &ContigLoc
                 if let Some(txg_indexes) = locus_txg_mols.get(&(left-1)) {
                     for txg_index in txg_indexes { check_remove(&txg[*txg_index], *txg_index, &mut current_txg_mol_set, left, right); }
                 }
-            }
+            } else { left = 0; }
             if let Some(hic_indexes) = locus_hic_mols.get(&(right-1)) {
                 for hic_index in hic_indexes { check_add(&hic[*hic_index], *hic_index, &mut current_hic_mol_set, left, right); }
             }

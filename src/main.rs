@@ -185,7 +185,7 @@ txg_mols: &HashMap<i32, Vec<Molecule>>, params: &Params, contig_loci: &ContigLoc
                     for index2 in (index1+1)..hicmol.loci.len() {
                         let locus1 = hicmol.loci[index1];
                         let locus2 = hicmol.loci[index2];
-                        if locus1 < mid && locus2 >= mid {
+                        if locus1 < mid && locus1 >= left && locus2 >= mid && locus2 < right {
                             if let Some(phase_left) = contig_phasing[locus1] {
                                 let mut phase_left = phase_left;
                                 

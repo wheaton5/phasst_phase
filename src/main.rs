@@ -190,8 +190,8 @@ txg_mols: &HashMap<i32, Vec<Molecule>>, params: &Params, contig_loci: &ContigLoc
                                 let mut phase_left = phase_left;
                                 
                                 if let Some(phase_right) = contig_phasing[locus2] {
-                                    eprintln!("hic mol {} mid {} locus {} and {} with phasing {} and {} and alleles {:?} and {:?}", 
-                                        hic_moldex, mid, locus1, locus2, phase_left, phase_right, hicmol.alleles[index1], hicmol.alleles[index2]);
+                                    //eprintln!("hic mol {} mid {} locus {} and {} with phasing {} and {} and alleles {:?} and {:?}", 
+                                    //    hic_moldex, mid, locus1, locus2, phase_left, phase_right, hicmol.alleles[index1], hicmol.alleles[index2]);
                                     let mut phase_right = phase_right;
                                     match hicmol.alleles[index1] {
                                         Allele::Alt => phase_left = !phase_left,

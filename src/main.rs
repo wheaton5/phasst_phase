@@ -181,6 +181,7 @@ txg_mols: &HashMap<i32, Vec<Molecule>>, params: &Params, contig_loci: &ContigLoc
 
             for hic_moldex in current_hic_mol_set.iter() {
                 let hicmol = &hic[*hic_moldex];
+                let mut molcounts: [u16;4] = [0;4];
                 for index1 in 0..hicmol.loci.len() {
                     for index2 in (index1+1)..hicmol.loci.len() {
                         let locus1 = hicmol.loci[index1];
@@ -202,14 +203,27 @@ txg_mols: &HashMap<i32, Vec<Molecule>>, params: &Params, contig_loci: &ContigLoc
                                         Allele::Ref => (),
                                     }
                                     
-                                    if phase_left && phase_right { counts[0] += 1; } 
-                                    else if !phase_left && !phase_right { counts[1] += 1; }
-                                    else if phase_left && !phase_right { counts[2] += 1; }
-                                    else if !phase_left && phase_right { counts[3] += 1; }
+                                    if phase_left && phase_right { molcounts[0] += 1; } 
+                                    else if !phase_left && !phase_right { molcounts[1] += 1; }
+                                    else if phase_left && !phase_right { molcounts[2] += 1; }
+                                    else if !phase_left && phase_right { molcounts[3] += 1; }
                                 }
                             }
                         }
                     }
+                }
+                let mut best = 0;
+                let mut bestdex = 0;
+                let mut secondbest = 0;
+                for index in 0..4 {
+                    if molcounts[index] > best {
+                        secondbest = best;
+                        best = molcounts[index];
+                        bestdex = index;
+                    }
+                }
+                if best > 0 && secondbest == 0 {
+                    counts[bestdex] += 1;
                 }
             }
             eprintln!("contig {}, mid {}, break_counts {:?}", contig, mid, counts);
@@ -1288,7 +1302,7 @@ fn load_params() -> Params {
     let min_hic_links = params.value_of("min_hic_links").unwrap_or("4");
     let min_hic_links = min_hic_links.to_string().parse::<u32>().unwrap();
 
-    let break_window = params.value_of("break_window").unwrap_or("100");
+    let break_window = params.value_of("break_window").unwrap_or("500");
     let break_window = break_window.to_string().parse::<usize>().unwrap();
     eprintln!("break window {}", break_window);
 

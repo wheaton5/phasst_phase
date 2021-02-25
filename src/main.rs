@@ -124,6 +124,7 @@ fn assess_breakpoints(
 ) {
 
     let mut chunks: HashMap<i32, Vec<(usize, usize)>> = HashMap::new(); // ranges for each contig
+
     for (contig, hic) in hic_links.iter() {
         let mut in_chunk = true;
         let contig_chunk = chunks.entry(*contig).or_insert(Vec::new());
@@ -342,10 +343,10 @@ fn assess_breakpoints(
                 }
             }
         }
-        if in_chunk {
+        //if in_chunk {
             current_chunk = (current_chunk.0, *assembly.contig_sizes.get(contig).unwrap());
             contig_chunk.push(current_chunk);
-        }
+        //}
         if contig_chunk.len() > 1 {
             eprintln!("contig {} with size {} is split into {} chunks", contig, *assembly.contig_sizes.get(contig).unwrap(), contig_chunk.len());
             for (start, end) in contig_chunk.iter() {
@@ -363,7 +364,15 @@ fn assess_breakpoints(
         let record = record.unwrap();
         let contig_name = record.id().to_string();
         let contig_id = assembly.contig_ids.get(&contig_name).unwrap();
+        
+        if !chunks.contains_key(contig_id) {
+            eprintln!("contig has no chunks??? {}", contig_id);
+            let size = assembly.contig_sizes.get(contig_id).unwrap();
+            let range = chunks.entry(*contig_id).or_insert(Vec::new());
+            range.push((0,*size));
+        } 
         let ranges = chunks.get(contig_id).unwrap();
+        
         for (index, (start, stop)) in ranges.iter().enumerate() {
             let mut new_contig_name = contig_name.to_string();
             if ranges.len() > 0 {

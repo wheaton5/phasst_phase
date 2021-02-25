@@ -413,89 +413,6 @@ fn check_add(
     }
 }
 
-/*
-
-fn subtract_counts(counts: &mut [u16; 4], indices: &Vec<usize>, mols: &Vec<Molecule>, phasing: &Vec<Option<bool>>, left: usize, mid_locus: usize, right: usize) {
-    if let Some(right_phase) = phasing[right] {
-        let mut right_phase = right_phase;
-        for index in indices {
-            let mol = &mols[*index];
-            for (locus, allele) in mol.loci.iter().zip(mol.alleles.iter()) {
-                if *locus == right {
-                    match allele {
-                        Allele::Alt => right_phase = !right_phase,
-                        Allele::Ref => (),
-                    }
-                }
-            }
-            // got to here changing stuff
-            for (locus, allele) in mol.loci.iter().zip(mol.alleles.iter()) {
-                if *locus >= mid_locus && *locus < right {
-                    // do something
-                    if let Some(left_phase) = phasing[*locus] {
-                        let mut left_phase = left_phase;
-                        match allele {
-                            Allele::Alt => right_phase = !right_phase,
-                            Allele::Ref => (),
-                        }
-                        if left_phase && right_phase {
-                            counts[0] += 1;
-                        } else if !left_phase && !right_phase {
-                            counts[1] += 1;
-                        } else if left_phase && !right_phase {
-                            counts[2] += 1;
-                        } else if !left_phase && right_phase {
-                            counts[3] += 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if let Some(mid) = phasing[mid_locus-1] {
-        let mol
-    }
-}
-
-fn subtract_counts(counts: &mut [u16; 4], indices: &Vec<usize>, mols: &Vec<Molecule>, phasing: &Vec<Option<bool>>, left: usize, mid_locus: usize, right: usize) {
-    if let Some(left_phase) = phasing[left] {
-        let mut left_phase = left_phase;
-        for index in indices {
-            let mol = &mols[*index];
-            for (locus, allele) in mol.loci.iter().zip(mol.alleles.iter()) {
-                if *locus == left {
-                    match allele {
-                        Allele::Alt => left_phase = !left_phase,
-                        Allele::Ref => (),
-                    }
-                }
-            }
-            for (locus, allele) in mol.loci.iter().zip(mol.alleles.iter()) {
-                if *locus >= mid_locus && *locus < right {
-                    // do something
-                    if let Some(right_phase) = phasing[*locus] {
-                        let mut right_phase = right_phase;
-                        match allele {
-                            Allele::Alt => right_phase = !right_phase,
-                            Allele::Ref => (),
-                        }
-                        if left_phase && right_phase {
-                            counts[0] -= 1;
-                        } else if !left_phase && !right_phase {
-                            counts[1] -= 1;
-                        } else if left_phase && !right_phase {
-                            counts[2] -= 1;
-                        } else if !left_phase && right_phase {
-                            counts[3] -= 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-*/
-
 fn allele(kmer: i32) -> Allele {
     match kmer.abs() % 2 == 0 {
         true => Allele::Ref,
@@ -589,9 +506,9 @@ fn good_assembly_loci(
     let mut contig_positions: HashMap<i32, Vec<(usize, i32, i32)>> = HashMap::new();
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
         // TODODODODODODODODODODo
-        if *contig != 1 {
-            continue;
-        } // TODO remove
+        //if *contig != 1 {
+        //   continue;
+        //} // TODO remove
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) {
             continue;

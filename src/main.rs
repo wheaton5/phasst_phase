@@ -344,7 +344,17 @@ fn assess_breakpoints(
         }
         if in_chunk {
             current_chunk = (current_chunk.0, *assembly.contig_sizes.get(contig).unwrap());
+            contig_chunk.push(current_chunk);
         }
+        if contig_chunk.len() > 1 {
+            eprintln!("contig {} with size {} is split into {} chunks", contig, *assembly.contig_sizes.get(contig).unwrap(), contig_chunk.len());
+            for (start, end) in contig_chunk.iter() {
+                eprintln!("\t{} - {}", start, end);
+            }
+        } else {
+            eprintln!("contig {} has no breaks", contig);
+        }
+        
 
     }
     let reader =  fasta::Reader::from_file(Path::new(&params.assembly_fasta.to_string())).expect("fasta not found");

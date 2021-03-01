@@ -396,6 +396,7 @@ fn assess_breakpoints(
     }
 }
 
+
 fn check_remove(
     mol: &Molecule,
     mol_index: usize,

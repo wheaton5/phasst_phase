@@ -129,7 +129,8 @@ fn assess_breakpoints(
     for contig in 1..assembly.contig_names.len() {
         let contig_name = &assembly.contig_names[contig];
         let contig = &(contig as i32);
-        let hic = hic_links.get(contig).expect(&format!("contig {} {} has no hic links, contig size {}", contig, contig_name, assembly.contig_sizes.get(contig).unwrap()));
+        let empty: Vec<Molecule> = Vec::new();
+        let hic = hic_links.get(contig).unwrap_or(&empty);//(&format!("contig {} {} has no hic links, contig size {}", contig, contig_name, assembly.contig_sizes.get(contig).unwrap()));
         let mut in_chunk = true;
         let contig_chunk = chunks.entry(*contig).or_insert(Vec::new());
         let mut current_chunk = (0,0);

@@ -136,8 +136,8 @@ fn assess_breakpoints(
         let mut current_chunk = (0,0);
         let ccs = ccs_mols
             .get(contig)
-            .expect("cant find contig for hifi mols");
-        let txg = txg_mols.get(contig).expect("cant find contig for txg mols");
+            .unwrap_or(&empty);//expect("cant find contig for hifi mols");
+        let txg = txg_mols.get(contig).unwrap_or(&empty);//.expect("cant find contig for txg mols");
         let contig_phasing = phasing.phasing.get(contig).expect("contig not in phasing?");
 
         let mut locus_hic_mols: HashMap<usize, Vec<usize>> = HashMap::new();

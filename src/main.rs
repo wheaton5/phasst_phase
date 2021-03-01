@@ -126,9 +126,10 @@ fn assess_breakpoints(
     let mut chunks: HashMap<i32, Vec<(usize, usize)>> = HashMap::new(); // ranges for each contig
 
     //for (contig, hic) in hic_links.iter() {
-    for (contig, contig_name) in assembly.contig_names.iter().enumerate() {
-        let contig = &((contig + 1) as i32);
-        let hic = hic_links.get(contig).expect(&format!("contig {} {} has no hic links", contig, contig_name));
+    for contig in 1..assembly.contig_names.len() {
+        let contig_name = &assembly.contig_names[contig];
+        let contig = &(contig as i32);
+        let hic = hic_links.get(contig).expect(&format!("contig {} {} has no hic links, contig size {}", contig, contig_name, assembly.contig_sizes.get(contig).unwrap()));
         let mut in_chunk = true;
         let contig_chunk = chunks.entry(*contig).or_insert(Vec::new());
         let mut current_chunk = (0,0);
@@ -341,6 +342,7 @@ fn assess_breakpoints(
                     in_chunk = false;
                     if current_chunk.1 > current_chunk.0 {
                         contig_chunk.push(current_chunk);
+                        eprintln!("adding chunk for contig {}, chunk {:?}", contig_name, current_chunk);
                     }
                 } else if cis/(total + 1.0) > 0.75 && !in_chunk {
                     in_chunk = true;
@@ -353,6 +355,7 @@ fn assess_breakpoints(
         if in_chunk || contig_chunk.len() == 0 {
             current_chunk = (current_chunk.0, *assembly.contig_sizes.get(contig).unwrap());
             contig_chunk.push(current_chunk);
+            eprintln!("adding chunk at finish for contig {}, chunk {:?}", contig_name, current_chunk);
         }
         if contig_chunk.len() > 1 {
             eprintln!("contig {} with size {} is split into {} chunks", contig, *assembly.contig_sizes.get(contig).unwrap(), contig_chunk.len());
@@ -522,7 +525,7 @@ fn good_assembly_loci(
     let mut contig_positions: HashMap<i32, Vec<(usize, i32, i32)>> = HashMap::new();
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
         // TODODODODODODODODODODo
-        if *contig > 8 {
+        if *contig > 4 {
            continue;
         } // TODO remove
 

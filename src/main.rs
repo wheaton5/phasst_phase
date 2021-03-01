@@ -125,7 +125,10 @@ fn assess_breakpoints(
 
     let mut chunks: HashMap<i32, Vec<(usize, usize)>> = HashMap::new(); // ranges for each contig
 
-    for (contig, hic) in hic_links.iter() {
+    //for (contig, hic) in hic_links.iter() {
+    for (contig, contig_name) in assembly.contig_names.iter().enumerate() {
+        let contig = &((contig + 1) as i32);
+        let hic = hic_links.get(contig).expect(&format!("contig {} {} has no hic links", contig, contig_name));
         let mut in_chunk = true;
         let contig_chunk = chunks.entry(*contig).or_insert(Vec::new());
         let mut current_chunk = (0,0);
@@ -336,17 +339,21 @@ fn assess_breakpoints(
                     current_chunk = (current_chunk.0, locus.position);
                 } else if cis/(total + 1.0) < 0.75 && in_chunk {
                     in_chunk = false;
-                    contig_chunk.push(current_chunk);
+                    if current_chunk.1 > current_chunk.0 {
+                        contig_chunk.push(current_chunk);
+                    }
                 } else if cis/(total + 1.0) > 0.75 && !in_chunk {
                     in_chunk = true;
                     current_chunk = (locus.position, locus.position);
                 }
+            } else if in_chunk {
+                current_chunk = (current_chunk.0, locus.position);
             }
         }
-        //if in_chunk {
+        if in_chunk || contig_chunk.len() == 0 {
             current_chunk = (current_chunk.0, *assembly.contig_sizes.get(contig).unwrap());
             contig_chunk.push(current_chunk);
-        //}
+        }
         if contig_chunk.len() > 1 {
             eprintln!("contig {} with size {} is split into {} chunks", contig, *assembly.contig_sizes.get(contig).unwrap(), contig_chunk.len());
             for (start, end) in contig_chunk.iter() {
@@ -515,9 +522,9 @@ fn good_assembly_loci(
     let mut contig_positions: HashMap<i32, Vec<(usize, i32, i32)>> = HashMap::new();
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
         // TODODODODODODODODODODo
-        //if *contig != 1 {
-        //   continue;
-        //} // TODO remove
+        if *contig > 8 {
+           continue;
+        } // TODO remove
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) {
             continue;

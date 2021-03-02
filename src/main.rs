@@ -92,7 +92,7 @@ fn main() {
     let txg_mols = gather_txg_mols(&txg_barcodes, &variant_contig_order);
     eprintln!("phasing");
     //MAYBE LATER let mut connected_components = get_connected_components(&hic_links, &variant_contig_order, params.min_hic_links);
-    let phasing = phasst_phase_main(
+    let (phasing, best_centers) = phasst_phase_main(
         &params,
         &hic_links,
         &long_hic_links,
@@ -102,7 +102,7 @@ fn main() {
         &assembly,
         &kmers,
     );
-    assess_breakpoints(
+    let contig_chunks = assess_breakpoints(
         &hic_links,
         &ccs_mols,
         &txg_mols,
@@ -111,6 +111,103 @@ fn main() {
         &phasing,
         &assembly
     );
+    output_phased_vcf(&kmers, &params, &best_centers, &variant_contig_order, &assembly, &contig_chunks);
+
+}
+
+fn output_phased_vcf(kmers: &Kmers, params: &Params, best_centers: &HashMap<i32, ClusterCenters>, contig_loci: &ContigLoci, assembly: &Assembly, contig_chunks: &HashMap<i32, Vec<(usize, usize)>>) {
+    let mut output = params.output.to_string();
+    output.push_str("/phasing_breaks.vcf");
+    let f = File::create(output).expect("Unable to create file");
+    let mut f = BufWriter::new(f);
+    let mut phasing: HashMap<i32, Vec<Option<bool>>> = HashMap::new();
+    //for (contig, center) in best_centers.iter() {
+    for contig in 1..assembly.contig_names.len() {
+        let empty: ClusterCenters = ClusterCenters::new();
+        let center = best_centers.get(contig).unwrap_or(&empty);
+        let contig_phasing = phasing.entry(*contig as i32).or_insert(Vec::new());
+        let loci = contig_loci.loci.get(contig).unwrap();
+        let contig_name = &assembly.contig_names[*contig as usize];
+
+        let chunks = contig_chunks.get(contig).expect("why do you hate me");
+        for (chunkdex, (left, right)) in chunks.iter().enumerate() {
+            for ldex in left..right { //0..center.clusters[0].center.len() {
+                // output is semi-vcf contig\tpos\t.\tREF\tALT\tqual\tfilter\tinfo\tformat\tsample
+                let chunk_name = vec![contig_name.to_string(), (chunkdex+1).to_string(), left.to_string(), right.to_string()].join("_");
+                let locus = loci[ldex];
+                let pos = locus.position;
+                let reference;
+                let alternate;
+                let flip;
+                match locus.allele {
+                    Allele::Ref => {
+                        reference = kmers.kmers.get(&locus.reference).unwrap().to_string();
+                        alternate = kmers.kmers.get(&locus.alternate).unwrap().to_string();
+                        flip = false;
+                    }
+                    Allele::Alt => {
+                        reference = kmers.kmers.get(&locus.alternate).unwrap().to_string();
+                        alternate = kmers.kmers.get(&locus.reference).unwrap().to_string();
+                        flip = true;
+                    }
+                }
+
+                let mut genotype: Vec<String> = Vec::new();
+
+                for cluster in center.clusters.iter() {
+                    let value = cluster.center[ldex];
+                    if value > 0.99 {
+                        if !flip {
+                            genotype.push("1".to_string());
+                        } else {
+                            genotype.push("0".to_string())
+                        }
+                    } else if value < 0.01 {
+                        if !flip {
+                            genotype.push("0".to_string())
+                        } else {
+                            genotype.push("1".to_string());
+                        }
+                    } else {
+                        genotype.push(".".to_string());
+                    }
+                }
+                if genotype[0] == "0" && genotype[1] == "1" {
+                    if !flip {
+                        contig_phasing.push(Some(true));
+                    } else {
+                        contig_phasing.push(Some(false));
+                    }
+                } else if genotype[0] == "1" && genotype[1] == "0" {
+                    if !flip {
+                        contig_phasing.push(Some(false));
+                    } else {
+                        contig_phasing.push(Some(true));
+                    }
+                } else {
+                    contig_phasing.push(None);
+                }
+
+                let genotype = vec![genotype.join("|"), "60".to_string()].join(":");
+                let mut line_vec: Vec<String> = vec![
+                    chunk_name.to_string(),
+                    pos.to_string(),
+                    ".".to_string(),
+                    reference,
+                    alternate,
+                    ".".to_string(),
+                    ".".to_string(),
+                    ".".to_string(),
+                    "GT:PQ".to_string(),
+                    genotype,
+                ];
+                let mut line = line_vec.join("\t");
+                line.push_str("\n");
+                f.write_all(line.as_bytes()).expect("Unable to write data");
+            }
+        }
+        
+    }
 }
 
 fn assess_breakpoints(
@@ -121,7 +218,7 @@ fn assess_breakpoints(
     contig_loci: &ContigLoci,
     phasing: &Phasing,
     assembly: &Assembly
-) {
+) -> HashMap<i32, Vec<(usize, usize)> {
 
     let mut chunks: HashMap<i32, Vec<(usize, usize)>> = HashMap::new(); // ranges for each contig
 
@@ -347,9 +444,10 @@ fn assess_breakpoints(
                         contig_chunk.push(current_chunk);
                         eprintln!("adding chunk for contig {}, chunk {:?}", contig_name, current_chunk);
                     }
+                    current_chunk = (locus.position+1, locus.position+1);
                 } else if cis/(total + 1.0) > 0.75 && !in_chunk {
                     in_chunk = true;
-                    current_chunk = (locus.position, locus.position);
+                    //current_chunk = (locus.position, locus.position);
                 }
             } else if in_chunk {
                 current_chunk = (current_chunk.0, locus.position);
@@ -397,6 +495,7 @@ fn assess_breakpoints(
             writer.write_record(&record).expect("could not write record");
         }
     }
+    chunks
 }
 
 
@@ -829,7 +928,7 @@ fn phasst_phase_main(
     contig_loci: &ContigLoci,
     assembly: &Assembly,
     kmers: &Kmers,
-) -> Phasing {
+) -> (Phasing, HashMap<i32, ClusterCenters>) {
     let seed = [params.seed; 32];
     let mut rng: StdRng = SeedableRng::from_seed(seed);
     let mut threads: Vec<ThreadData> = Vec::new();
@@ -1075,7 +1174,7 @@ fn phasst_phase_main(
             f.write_all(line.as_bytes()).expect("Unable to write data");
         }
     }
-    Phasing { phasing: phasing }
+    (Phasing { phasing: phasing }, best_centers)
 }
 
 fn expectation_maximization(

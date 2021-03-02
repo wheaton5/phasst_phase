@@ -102,7 +102,7 @@ fn main() {
         &assembly,
         &kmers,
     );
-    let contig_chunks = assess_breakpoints(
+    let (contig_chunk_positions, contig_chunk_indices) = assess_breakpoints(
         &hic_links,
         &ccs_mols,
         &txg_mols,
@@ -111,7 +111,7 @@ fn main() {
         &phasing,
         &assembly
     );
-    output_phased_vcf(&kmers, &params, &best_centers, &variant_contig_order, &assembly, &contig_chunks);
+    output_phased_vcf(&kmers, &params, &best_centers, &variant_contig_order, &assembly, &contig_chunk_indices);
 
 }
 
@@ -131,7 +131,9 @@ fn output_phased_vcf(kmers: &Kmers, params: &Params, best_centers: &HashMap<i32,
         let contig_name = &assembly.contig_names[*contig as usize];
 
         let chunks = contig_chunks.get(contig).expect("why do you hate me");
+
         for (chunkdex, (left, right)) in chunks.iter().enumerate() {
+            
             for ldex in *left..*right { //0..center.clusters[0].center.len() {
                 // output is semi-vcf contig\tpos\t.\tREF\tALT\tqual\tfilter\tinfo\tformat\tsample
                 let chunk_name = vec![contig_name.to_string(), (chunkdex+1).to_string(), left.to_string(), right.to_string()].join("_");
@@ -219,9 +221,10 @@ fn assess_breakpoints(
     contig_loci: &ContigLoci,
     phasing: &Phasing,
     assembly: &Assembly
-) -> HashMap<i32, Vec<(usize, usize)>> {
+) -> (HashMap<i32, Vec<(usize, usize)>>, HashMap<i32, Vec<(usize, usize)>>) {
 
     let mut chunks: HashMap<i32, Vec<(usize, usize)>> = HashMap::new(); // ranges for each contig
+    let mut chunks_indices: HashMap<i32, Vec<(usize, usize)>> = HashMap::new(); // ranges for each contig
 
     //for (contig, hic) in hic_links.iter() {
     for contig in 1..assembly.contig_names.len() {
@@ -231,7 +234,9 @@ fn assess_breakpoints(
         let hic = hic_links.get(contig).unwrap_or(&empty);//(&format!("contig {} {} has no hic links, contig size {}", contig, contig_name, assembly.contig_sizes.get(contig).unwrap()));
         let mut in_chunk = true;
         let contig_chunk = chunks.entry(*contig).or_insert(Vec::new());
+        let contig_chunk_indices = chunks_indices.entry(*contig).or_insert(Vec::new());
         let mut current_chunk = (0,0);
+        let mut current_chunk_indices = (0,0);
         let ccs = ccs_mols
             .get(contig)
             .unwrap_or(&empty);//expect("cant find contig for hifi mols");
@@ -439,24 +444,30 @@ fn assess_breakpoints(
             if mid > 250 && mid < loci.len() - 250 {
                 if cis/(total + 1.0) > 0.75 && in_chunk {
                     current_chunk = (current_chunk.0, locus.position);
+                    current_chunk_indices = (current_chunk_indices.0, mid);
                 } else if cis/(total + 1.0) < 0.75 && in_chunk {
                     in_chunk = false;
                     if current_chunk.1 > current_chunk.0 {
                         contig_chunk.push(current_chunk);
+                        contig_chunk_indices.push(current_chunk_indices);
                         eprintln!("adding chunk for contig {}, chunk {:?}", contig_name, current_chunk);
                     }
                     current_chunk = (locus.position+1, locus.position+1);
+                    current_chunk_indices = (mid+1, mid+1);
                 } else if cis/(total + 1.0) > 0.75 && !in_chunk {
                     in_chunk = true;
                     //current_chunk = (locus.position, locus.position);
                 }
             } else if in_chunk {
                 current_chunk = (current_chunk.0, locus.position);
+                current_chunk_indices = (current_chunk_indices.0, mid);
             }
         }
         if in_chunk || contig_chunk.len() == 0 {
             current_chunk = (current_chunk.0, *assembly.contig_sizes.get(contig).unwrap());
             contig_chunk.push(current_chunk);
+            let empty: Vec<ContigLocus> = Vec::new();
+            current_chunk_indices = (current_chunk_indices.0, contig_loci.loci.get(contig).unwrap_or(&empty).len());
             eprintln!("adding chunk at finish for contig {}, chunk {:?}", contig_name, current_chunk);
         }
         if contig_chunk.len() > 1 {
@@ -496,7 +507,7 @@ fn assess_breakpoints(
             writer.write_record(&record).expect("could not write record");
         }
     }
-    chunks
+    (chunks, chunks_indices)
 }
 
 

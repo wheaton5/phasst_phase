@@ -123,7 +123,8 @@ fn output_phased_vcf(kmers: &Kmers, params: &Params, best_centers: &HashMap<i32,
     let mut phasing: HashMap<i32, Vec<Option<bool>>> = HashMap::new();
     //for (contig, center) in best_centers.iter() {
     for contig in 1..assembly.contig_names.len() {
-        let empty: ClusterCenters = ClusterCenters::new();
+        let contig = &(contig as i32);
+        let empty: ClusterCenters = ClusterCenters{ clusters: Vec::new() };
         let center = best_centers.get(contig).unwrap_or(&empty);
         let contig_phasing = phasing.entry(*contig as i32).or_insert(Vec::new());
         let loci = contig_loci.loci.get(contig).unwrap();
@@ -131,7 +132,7 @@ fn output_phased_vcf(kmers: &Kmers, params: &Params, best_centers: &HashMap<i32,
 
         let chunks = contig_chunks.get(contig).expect("why do you hate me");
         for (chunkdex, (left, right)) in chunks.iter().enumerate() {
-            for ldex in left..right { //0..center.clusters[0].center.len() {
+            for ldex in *left..*right { //0..center.clusters[0].center.len() {
                 // output is semi-vcf contig\tpos\t.\tREF\tALT\tqual\tfilter\tinfo\tformat\tsample
                 let chunk_name = vec![contig_name.to_string(), (chunkdex+1).to_string(), left.to_string(), right.to_string()].join("_");
                 let locus = loci[ldex];
@@ -218,7 +219,7 @@ fn assess_breakpoints(
     contig_loci: &ContigLoci,
     phasing: &Phasing,
     assembly: &Assembly
-) -> HashMap<i32, Vec<(usize, usize)> {
+) -> HashMap<i32, Vec<(usize, usize)>> {
 
     let mut chunks: HashMap<i32, Vec<(usize, usize)>> = HashMap::new(); // ranges for each contig
 

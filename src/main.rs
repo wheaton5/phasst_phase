@@ -162,10 +162,11 @@ fn assess_breakpoints(
                 blah.push(read_index);
             }
         }
+        let empty3: Vec<ContigLocus> = Vec::new();
         let loci = contig_loci
             .loci
             .get(contig)
-            .expect("cant find contig in contig loci");
+            .unwrap_or(&empty3);
 
         let mut current_hic_mol_set: HashSet<usize> = HashSet::new();
         let mut current_txg_mol_set: HashSet<usize> = HashSet::new();

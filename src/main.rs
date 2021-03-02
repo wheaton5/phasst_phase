@@ -529,7 +529,7 @@ fn good_assembly_loci(
     let mut contig_positions: HashMap<i32, Vec<(usize, i32, i32)>> = HashMap::new();
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
         // TODODODODODODODODODODo
-        if *contig != 2 {
+        if *contig > 5 {
            continue;
         } // TODO remove
 

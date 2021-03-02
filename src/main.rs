@@ -1,15 +1,15 @@
 #[macro_use]
 extern crate clap;
+extern crate bio;
 extern crate disjoint_set;
 extern crate hashbrown;
 extern crate phasst_lib;
 extern crate rand;
 extern crate rayon;
-extern crate bio;
 
 use bio::io::fasta;
-use bio::utils::TextSlice;
 use bio::io::fasta::Record;
+use bio::utils::TextSlice;
 use std::path::Path;
 
 use phasst_lib::{
@@ -109,13 +109,28 @@ fn main() {
         &params,
         &variant_contig_order,
         &phasing,
-        &assembly
+        &assembly,
     );
-    output_phased_vcf(&kmers, &params, &best_centers, &variant_contig_order, &assembly, &contig_chunk_indices);
-
+    output_phased_vcf(
+        &kmers,
+        &params,
+        &best_centers,
+        &variant_contig_order,
+        &assembly,
+        &contig_chunk_indices,
+        &contig_chunk_positions,
+    );
 }
 
-fn output_phased_vcf(kmers: &Kmers, params: &Params, best_centers: &HashMap<i32, ClusterCenters>, contig_loci: &ContigLoci, assembly: &Assembly, contig_chunks: &HashMap<i32, Vec<(usize, usize)>>) {
+fn output_phased_vcf(
+    kmers: &Kmers,
+    params: &Params,
+    best_centers: &HashMap<i32, ClusterCenters>,
+    contig_loci: &ContigLoci,
+    assembly: &Assembly,
+    contig_chunk_indices: &HashMap<i32, Vec<(usize, usize)>>,
+    contig_chunk_positions: &HashMap<i32, Vec<(usize, usize)>>,
+) {
     let mut output = params.output.to_string();
     output.push_str("/phasing_breaks.vcf");
     let f = File::create(output).expect("Unable to create file");
@@ -124,19 +139,35 @@ fn output_phased_vcf(kmers: &Kmers, params: &Params, best_centers: &HashMap<i32,
     //for (contig, center) in best_centers.iter() {
     for contig in 1..assembly.contig_names.len() {
         let contig = &(contig as i32);
-        let empty: ClusterCenters = ClusterCenters{ clusters: Vec::new() };
+        let empty: ClusterCenters = ClusterCenters {
+            clusters: Vec::new(),
+        };
         let center = best_centers.get(contig).unwrap_or(&empty);
         let contig_phasing = phasing.entry(*contig as i32).or_insert(Vec::new());
-        let loci = contig_loci.loci.get(contig).unwrap();
+
+        let empty: Vec<ContigLocus> = Vec::new();
+        let loci = contig_loci.loci.get(contig).unwrap_or(&empty);
         let contig_name = &assembly.contig_names[*contig as usize];
 
-        let chunks = contig_chunks.get(contig).expect("why do you hate me");
+        let chunks = contig_chunk_indices
+            .get(contig)
+            .expect("why do you hate me");
+        let chunk_positions = contig_chunk_positions.get(contig).expect("noooo");
 
         for (chunkdex, (left, right)) in chunks.iter().enumerate() {
-            
-            for ldex in *left..*right { //0..center.clusters[0].center.len() {
+            let left_pos = chunk_positions[chunkdex].0;
+            let right_pos = chunk_positions[chunkdex].1;
+            let chunk_name = vec![
+                contig_name.to_string(),
+                (chunkdex + 1).to_string(),
+                left_pos.to_string(),
+                right_pos.to_string(),
+            ]
+            .join("_");
+            for ldex in *left..*right {
+                //0..center.clusters[0].center.len() {
                 // output is semi-vcf contig\tpos\t.\tREF\tALT\tqual\tfilter\tinfo\tformat\tsample
-                let chunk_name = vec![contig_name.to_string(), (chunkdex+1).to_string(), left.to_string(), right.to_string()].join("_");
+
                 let locus = loci[ldex];
                 let pos = locus.position;
                 let reference;
@@ -209,7 +240,6 @@ fn output_phased_vcf(kmers: &Kmers, params: &Params, best_centers: &HashMap<i32,
                 f.write_all(line.as_bytes()).expect("Unable to write data");
             }
         }
-        
     }
 }
 
@@ -220,9 +250,11 @@ fn assess_breakpoints(
     params: &Params,
     contig_loci: &ContigLoci,
     phasing: &Phasing,
-    assembly: &Assembly
-) -> (HashMap<i32, Vec<(usize, usize)>>, HashMap<i32, Vec<(usize, usize)>>) {
-
+    assembly: &Assembly,
+) -> (
+    HashMap<i32, Vec<(usize, usize)>>,
+    HashMap<i32, Vec<(usize, usize)>>,
+) {
     let mut chunks: HashMap<i32, Vec<(usize, usize)>> = HashMap::new(); // ranges for each contig
     let mut chunks_indices: HashMap<i32, Vec<(usize, usize)>> = HashMap::new(); // ranges for each contig
 
@@ -231,18 +263,16 @@ fn assess_breakpoints(
         let contig_name = &assembly.contig_names[contig];
         let contig = &(contig as i32);
         let empty: Vec<Molecule> = Vec::new();
-        let hic = hic_links.get(contig).unwrap_or(&empty);//(&format!("contig {} {} has no hic links, contig size {}", contig, contig_name, assembly.contig_sizes.get(contig).unwrap()));
+        let hic = hic_links.get(contig).unwrap_or(&empty); //(&format!("contig {} {} has no hic links, contig size {}", contig, contig_name, assembly.contig_sizes.get(contig).unwrap()));
         let mut in_chunk = true;
         let contig_chunk = chunks.entry(*contig).or_insert(Vec::new());
         let contig_chunk_indices = chunks_indices.entry(*contig).or_insert(Vec::new());
-        let mut current_chunk = (0,0);
-        let mut current_chunk_indices = (0,0);
-        let ccs = ccs_mols
-            .get(contig)
-            .unwrap_or(&empty);//expect("cant find contig for hifi mols");
-        let txg = txg_mols.get(contig).unwrap_or(&empty);//.expect("cant find contig for txg mols");
+        let mut current_chunk = (0, 0);
+        let mut current_chunk_indices = (0, 0);
+        let ccs = ccs_mols.get(contig).unwrap_or(&empty); //expect("cant find contig for hifi mols");
+        let txg = txg_mols.get(contig).unwrap_or(&empty); //.expect("cant find contig for txg mols");
         let empty2: Vec<Option<bool>> = Vec::new();
-        let contig_phasing = phasing.phasing.get(contig).unwrap_or(&empty2);//expect("contig not in phasing?");
+        let contig_phasing = phasing.phasing.get(contig).unwrap_or(&empty2); //expect("contig not in phasing?");
 
         let mut locus_hic_mols: HashMap<usize, Vec<usize>> = HashMap::new();
         let mut locus_ccs_mols: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -266,10 +296,7 @@ fn assess_breakpoints(
             }
         }
         let empty3: Vec<ContigLocus> = Vec::new();
-        let loci = contig_loci
-            .loci
-            .get(contig)
-            .unwrap_or(&empty3);
+        let loci = contig_loci.loci.get(contig).unwrap_or(&empty3);
 
         let mut current_hic_mol_set: HashSet<usize> = HashSet::new();
         let mut current_txg_mol_set: HashSet<usize> = HashSet::new();
@@ -439,22 +466,25 @@ fn assess_breakpoints(
                 "contig {}, mid {} position {}, break_counts {:?}",
                 contig, locus.position, mid, counts
             );
-            let cis = (counts[0]+counts[1]) as f64;
-            let total = ((counts[2]+counts[3]) as f64) + cis;
+            let cis = (counts[0] + counts[1]) as f64;
+            let total = ((counts[2] + counts[3]) as f64) + cis;
             if mid > 250 && mid < loci.len() - 250 {
-                if cis/(total + 1.0) > 0.75 && in_chunk {
+                if cis / (total + 1.0) > 0.75 && in_chunk {
                     current_chunk = (current_chunk.0, locus.position);
                     current_chunk_indices = (current_chunk_indices.0, mid);
-                } else if cis/(total + 1.0) < 0.75 && in_chunk {
+                } else if cis / (total + 1.0) < 0.75 && in_chunk {
                     in_chunk = false;
                     if current_chunk.1 > current_chunk.0 {
                         contig_chunk.push(current_chunk);
                         contig_chunk_indices.push(current_chunk_indices);
-                        eprintln!("adding chunk for contig {}, chunk {:?}", contig_name, current_chunk);
+                        eprintln!(
+                            "adding chunk for contig {}, chunk {:?}",
+                            contig_name, current_chunk
+                        );
                     }
-                    current_chunk = (locus.position+1, locus.position+1);
-                    current_chunk_indices = (mid+1, mid+1);
-                } else if cis/(total + 1.0) > 0.75 && !in_chunk {
+                    current_chunk = (locus.position + 1, locus.position + 1);
+                    current_chunk_indices = (mid + 1, mid + 1);
+                } else if cis / (total + 1.0) > 0.75 && !in_chunk {
                     in_chunk = true;
                     //current_chunk = (locus.position, locus.position);
                 }
@@ -467,49 +497,66 @@ fn assess_breakpoints(
             current_chunk = (current_chunk.0, *assembly.contig_sizes.get(contig).unwrap());
             contig_chunk.push(current_chunk);
             let empty: Vec<ContigLocus> = Vec::new();
-            current_chunk_indices = (current_chunk_indices.0, contig_loci.loci.get(contig).unwrap_or(&empty).len());
-            eprintln!("adding chunk at finish for contig {}, chunk {:?}", contig_name, current_chunk);
+            current_chunk_indices = (
+                current_chunk_indices.0,
+                contig_loci.loci.get(contig).unwrap_or(&empty).len(),
+            );
+            eprintln!(
+                "adding chunk at finish for contig {}, chunk {:?}",
+                contig_name, current_chunk
+            );
         }
         if contig_chunk.len() > 1 {
-            eprintln!("contig {} with size {} is split into {} chunks", contig, *assembly.contig_sizes.get(contig).unwrap(), contig_chunk.len());
+            eprintln!(
+                "contig {} with size {} is split into {} chunks",
+                contig,
+                *assembly.contig_sizes.get(contig).unwrap(),
+                contig_chunk.len()
+            );
             for (start, end) in contig_chunk.iter() {
                 eprintln!("\t{} - {}", start, end);
             }
         } else {
             eprintln!("contig {} has no breaks", contig);
         }
-        
-
     }
-    let reader =  fasta::Reader::from_file(Path::new(&params.assembly_fasta.to_string())).expect("fasta not found");
-    let mut writer = fasta::Writer::to_file(Path::new(&format!("{}/breaks.fa",params.output))).expect("cannot open fasta writer");
+    let reader = fasta::Reader::from_file(Path::new(&params.assembly_fasta.to_string()))
+        .expect("fasta not found");
+    let mut writer = fasta::Writer::to_file(Path::new(&format!("{}/breaks.fa", params.output)))
+        .expect("cannot open fasta writer");
     for record in reader.records() {
         let record = record.unwrap();
         let contig_name = record.id().to_string();
         let contig_id = assembly.contig_ids.get(&contig_name).unwrap();
-        
+
         if !chunks.contains_key(contig_id) {
             eprintln!("contig has no chunks??? {}", contig_id);
             let size = assembly.contig_sizes.get(contig_id).unwrap();
             let range = chunks.entry(*contig_id).or_insert(Vec::new());
-            range.push((0,*size));
-        } 
+            range.push((0, *size));
+        }
         let ranges = chunks.get(contig_id).unwrap();
-        
+
         for (index, (start, stop)) in ranges.iter().enumerate() {
             let mut new_contig_name = contig_name.to_string();
             if ranges.len() > 0 {
-                let list = vec![new_contig_name, (index+1).to_string(), start.to_string(), stop.to_string()];
+                let list = vec![
+                    new_contig_name,
+                    (index + 1).to_string(),
+                    start.to_string(),
+                    stop.to_string(),
+                ];
                 new_contig_name = list.join("_");
             }
             let seq: TextSlice = &record.seq()[*start..*stop];
             let record = Record::with_attrs(&new_contig_name, None, &seq);
-            writer.write_record(&record).expect("could not write record");
+            writer
+                .write_record(&record)
+                .expect("could not write record");
         }
     }
     (chunks, chunks_indices)
 }
-
 
 fn check_remove(
     mol: &Molecule,
@@ -641,7 +688,7 @@ fn good_assembly_loci(
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
         // TODODODODODODODODODODo
         if *contig > 5 {
-           continue;
+            continue;
         } // TODO remove
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) {

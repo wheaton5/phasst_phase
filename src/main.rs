@@ -501,6 +501,7 @@ fn assess_breakpoints(
                 current_chunk_indices.0,
                 contig_loci.loci.get(contig).unwrap_or(&empty).len(),
             );
+            contig_chunk_indices.push(current_chunk_indices);
             eprintln!(
                 "adding chunk at finish for contig {}, chunk {:?}",
                 contig_name, current_chunk

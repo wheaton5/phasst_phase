@@ -462,10 +462,10 @@ fn assess_breakpoints(
                     counts[bestdex] += 1;
                 }
             }
-            eprintln!(
-                "contig {}, mid {} position {}, break_counts {:?}",
-                contig, locus.position, mid, counts
-            );
+            //eprintln!(
+            //    "contig {}, mid {} position {}, break_counts {:?}",
+            //   contig, locus.position, mid, counts
+            //);
             let cis = (counts[0] + counts[1]) as f64;
             let total = ((counts[2] + counts[3]) as f64) + cis;
             if mid > 250 && mid < loci.len() - 250 {
@@ -503,8 +503,8 @@ fn assess_breakpoints(
             );
             contig_chunk_indices.push(current_chunk_indices);
             eprintln!(
-                "adding chunk at finish for contig {}, chunk {:?}",
-                contig_name, current_chunk
+                "adding chunk at finish for contig {}, chunk {:?}, and indices {:?}",
+                contig_name, current_chunk, current_chunk_indices
             );
         }
         if contig_chunk.len() > 1 {
@@ -517,8 +517,17 @@ fn assess_breakpoints(
             for (start, end) in contig_chunk.iter() {
                 eprintln!("\t{} - {}", start, end);
             }
+            for (startdex, enddex) in contig_chunk_indices.iter() {
+                eprintln!("\t{} - {}", startdex, enddex);
+            }
         } else {
             eprintln!("contig {} has no breaks", contig);
+            for (start, end) in contig_chunk.iter() {
+                eprintln!("\t{} - {}", start, end);
+            }
+            for (startdex, enddex) in contig_chunk_indices.iter() {
+                eprintln!("\t{} - {}", startdex, enddex);
+            }
         }
     }
     let reader = fasta::Reader::from_file(Path::new(&params.assembly_fasta.to_string()))

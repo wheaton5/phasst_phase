@@ -24,6 +24,9 @@ use rand::SeedableRng;
 
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use std::io::BufReader;
+use std::io::BufRead;
+use std::io::Read;
 
 use disjoint_set::DisjointSet;
 use hashbrown::{HashMap, HashSet};
@@ -185,6 +188,7 @@ fn output_phased_vcf(
                         flip = true;
                     }
                 }
+
 
                 let mut genotype: Vec<String> = Vec::new();
 
@@ -1495,30 +1499,50 @@ fn load_params() -> Params {
 
     let het_kmers = params.value_of("het_kmers").unwrap();
     let output = params.value_of("output").unwrap();
-    let txg_tmp = match params.values_of("linked_read_mols") {
-        Some(x) => x.collect(),
-        None => Vec::new(),
-    };
+
+
     let mut txg_mols: Vec<String> = Vec::new();
-    for x in txg_tmp {
-        txg_mols.push(x.to_string());
-    }
-    let hic_tmp = match params.values_of("hic_mols") {
-        Some(x) => x.collect(),
-        None => Vec::new(),
-    };
-    let mut hic_mols: Vec<String> = Vec::new();
-    for x in hic_tmp {
-        hic_mols.push(x.to_string());
+    match params.value_of("linked_read_mols") {
+        Some(txg_fofn) => {
+            let f = File::open(txg_fofn).expect("Unable to open txg fofn");
+            let f = BufReader::new(f);
+
+            for line in f.lines() {
+                let line = line.expect("Unable to read txg fofn line");
+                txg_mols.push(line.to_string());
+            }
+        },
+        None => (),
     }
 
-    let long_tmp = match params.values_of("long_read_mols") {
-        Some(x) => x.collect(),
-        None => Vec::new(),
-    };
+
+    let mut hic_mols: Vec<String> = Vec::new();
+    match params.value_of("hic_mols") {
+        Some(hic_fofn) => {
+            let f = File::open(hic_fofn).expect("Unable to open hic fofn");
+            let f = BufReader::new(f);
+
+            for line in f.lines() {
+                let line = line.expect("Unable to read txg fofn line");
+                hic_mols.push(line.to_string());
+            }
+        },
+        None => (),
+    }
+    
+
     let mut ccs_mols: Vec<String> = Vec::new();
-    for x in long_tmp {
-        ccs_mols.push(x.to_string());
+    match params.value_of("long_read_mols") {
+        Some(ccs_fofn) => {
+            let f = File::open(ccs_fofn).expect("Unable to open hic fofn");
+            let f = BufReader::new(f);
+
+            for line in f.lines() {
+                let line = line.expect("Unable to read txg fofn line");
+                ccs_mols.push(line.to_string());
+            }
+        },
+        None => (),
     }
 
     let threads = params.value_of("threads").unwrap_or("1");

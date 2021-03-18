@@ -18,23 +18,20 @@ args:
     - linked_read_mols:
         long: linked_read_mols
         short: l
-        multiple: true
         takes_value: true
         required: false
-        help: linked read molecule kmers from output of molecule_kmers
+        help: linked read molecule kmers from output of molecule_kmers in fofn (file of filenames) format
     - hic_mols:
         long: hic_mols
         short: h
-        multiple: true
         required: true
         takes_value: true
-        help: hic kmers as output from molecule_kmers 
+        help: hic kmers as output from molecule_kmers in fofn format
     - long_read_mols:
         long: long_read_mols
-        multiple: true
         required: false
         takes_value: true
-        help: long reads as output from molecule_kmers
+        help: long reads as output from molecule_kmers in fofn format
     - threads:
         short: t
         long: threads
@@ -80,3 +77,4 @@ args:
         required: false
         help: window of snps used to determine if contig should be split (default 100)
         takes_value: true
+        

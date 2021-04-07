@@ -417,6 +417,7 @@ fn assess_breakpoints(
             }
 
             let mut counts: [u16; 4] = [0; 4];
+            let mut total_phased_unphased = 0;
 
             for hic_moldex in current_hic_mol_set.iter() {
                 let hicmol = &hic[*hic_moldex];
@@ -426,6 +427,7 @@ fn assess_breakpoints(
                         let locus1 = hicmol.loci[index1];
                         let locus2 = hicmol.loci[index2];
                         if locus1 < mid && locus1 >= left && locus2 >= mid && locus2 < right {
+                            total_phased_unphased += 1;
                             if let Some(phase_left) = contig_phasing[locus1] {
                                 let mut phase_left = phase_left;
                                 if let Some(phase_right) = contig_phasing[locus2] {
@@ -482,8 +484,8 @@ fn assess_breakpoints(
                         contig_chunk.push(current_chunk);
                         contig_chunk_indices.push(current_chunk_indices);
                         eprintln!(
-                            "adding chunk for contig {}, chunk {:?}",
-                            contig_name, current_chunk
+                            "adding chunk for contig, cis {} and total phased {} total phased or unphased {}, contig {}, chunk {:?}",
+                            cis, total, total_phased_unphased, contig_name, current_chunk
                         );
                     }
                     current_chunk = (locus.position + 1, locus.position + 1);
@@ -701,9 +703,9 @@ fn good_assembly_loci(
     let mut contig_positions: HashMap<i32, Vec<(usize, i32, i32)>> = HashMap::new();
     for (kmer, (contig, num, _order, position)) in assembly.variants.iter() {
         // TODODODODODODODODODODo
-        //if *contig > 5 {
-        //    continue;
-        //} // TODO remove
+        if *contig > 6 {
+            continue;
+        } // TODO remove
 
         if assembly.variants.contains_key(&Kmers::pair(*kmer)) {
             continue;

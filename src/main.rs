@@ -83,6 +83,7 @@ fn main() {
     let txg_barcodes = load_linked_read_barcodes(Some(&params.txg_mols), &kmers);
     eprintln!("loading assembly kmers");
     let assembly = load_assembly_kmers(&params.assembly_kmers, &params.assembly_fasta, &kmers);
+    let sex_contigs = detect_sex_contigs(&assembly);
 
     eprintln!("finding good loci");
     let allele_fractions = get_allele_fractions(&hic_mols); // MAYBE ADD LINKED Molecule AND LONG Molecule to this?
@@ -123,6 +124,25 @@ fn main() {
         &contig_chunk_indices,
         &contig_chunk_positions,
     );
+}
+
+fn detect_sex_contigs(assembly: &Assembly) -> HashSet<i32> {
+    let mut sex_contigs: HashSet<i32> = HashSet::new();
+    let mut densities: Vec<(f32, i32)> = Vec::new();
+    for (contig, kmers) in assembly.molecules.iter() {
+        let size = assembly.contig_sizes.get(contig).expect("I am actually going crazy");
+        densities.push(((kmers.len() as f32)/(*size as f32), *contig));
+    }
+    densities.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let threshold = densities[densities.len()/2].0 * 0.2;
+    eprintln!("detecting sex contigs. lets go with 1/5th the median which is {}", threshold);
+    for (density, contig) in densities.iter() {
+        eprintln!("{}", density);
+        if *density < threshold {
+            sex_contigs.insert(*contig);
+        }
+    }
+    sex_contigs
 }
 
 fn output_phased_vcf(

@@ -83,6 +83,7 @@ fn main() {
     let txg_barcodes = load_linked_read_barcodes(Some(&params.txg_mols), &kmers);
     eprintln!("loading assembly kmers");
     let assembly = load_assembly_kmers(&params.assembly_kmers, &params.assembly_fasta, &kmers);
+
     let sex_contigs = detect_sex_contigs(&assembly);
 
     eprintln!("finding good loci");
@@ -137,9 +138,12 @@ fn detect_sex_contigs(assembly: &Assembly) -> HashSet<i32> {
     let threshold = densities[densities.len()/2].0 * 0.2;
     eprintln!("detecting sex contigs. lets go with 1/5th the median which is {}", threshold);
     for (density, contig) in densities.iter() {
-        eprintln!("{}", density);
         if *density < threshold {
+            eprintln!("{}\t{}\t{}\t{}\tSEX", density, contig, assembly.contig_names[*contig as usize], assembly.contig_sizes.get(contig).unwrap());
             sex_contigs.insert(*contig);
+        }
+        else {
+            eprintln!("{}\t{}\t{}\t{}\tAUTOSOMAL", density, contig, assembly.contig_names[*contig as usize], assembly.contig_sizes.get(contig).unwrap());
         }
     }
     sex_contigs
@@ -1064,9 +1068,9 @@ fn phasst_phase_main(
                 let contig_hifi_mols = hifi_mols.get(contig).unwrap();
                 let contig_txg_mols = linked_read_mols.get(contig).unwrap();
                 let long_contig_hic_links = long_hic_links.get(contig).unwrap();
-                eprintln!("solve with LONG LINKS ONLY");
-                let (_log_loss, cluster_centers, _hic_probabilities, _) =  // first solve with long links only
-                    expectation_maximization(loci.len(), cluster_centers, &long_contig_hic_links, &empty_vec, &empty_vec, params, iteration, thread_data.thread_num);
+                //eprintln!("solve with LONG LINKS ONLY");
+                //let (_log_loss, cluster_centers, _hic_probabilities, _) =  // first solve with long links only
+                //    expectation_maximization(loci.len(), cluster_centers, &long_contig_hic_links, &empty_vec, &empty_vec, params, iteration, thread_data.thread_num);
                 eprintln!("ALL MoleculeS: {} hic and {} hifi", contig_hic_links.len(), contig_hifi_mols.len());
                 let (log_loss, cluster_centers, hic_probabilities, hic_likelihoods) =
                     expectation_maximization(loci.len(), cluster_centers, &contig_hic_links, &contig_hifi_mols, &contig_txg_mols, params, iteration, thread_data.thread_num);
